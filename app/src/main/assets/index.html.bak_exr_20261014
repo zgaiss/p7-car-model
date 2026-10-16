@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>P7 SHOW</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0a1420; font-family: "Microsoft YaHei", system-ui, sans-serif; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+  #container { position: fixed; inset: 0; }
+  #container canvas { display: block; }
+  #status { position: fixed; top: 12px; left: 16px; color: rgba(255,255,255,0.92); font-size: 13px; letter-spacing: 1px; text-shadow: 0 1px 3px rgba(0,0,0,0.7); z-index: 10; pointer-events: none; }
+  #debug { position: fixed; top: 44px; left: 16px; color: rgba(255,255,120,0.95); font-size: 12px; z-index: 10; pointer-events: none; }
+  .hint { position: fixed; bottom: 122px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.85); font-size: 11px; z-index: 10; text-shadow: 0 1px 3px rgba(0,0,0,0.7); pointer-events: none; white-space: nowrap; transition: opacity 0.35s ease; }
+  #freqCanvas { position: fixed; left: 0; bottom: 0; width: 100%; height: 48px; z-index: 20; pointer-events: none; display: block; }
+  #lightBtn {
+    display: none;
+    position: fixed; right: 16px; top: 14px; z-index: 30;
+    background: rgba(20,32,48,0.55);
+    color: rgba(255,255,255,0.92);
+    border: 1px solid rgba(255,255,255,0.28);
+    border-radius: 20px;
+    padding: 8px 16px;
+    font-size: 13px;
+    letter-spacing: 1px;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  }
+  #lightBtn.on {
+    background: rgba(255,210,120,0.26);
+    border-color: rgba(255,210,120,0.75);
+    color: #ffd98a;
+  }
+  #lightBtn.disabled { opacity: 0.4; cursor: default; }
+  #sceneBtns {
+    position: fixed; right: 16px; top: 58px; z-index: 30;
+    display: flex; gap: 6px;
+  }
+  .sceneBtn {
+    background: rgba(20,32,48,0.55);
+    color: rgba(255,255,255,0.92);
+    border: 1px solid rgba(255,255,255,0.28);
+    border-radius: 16px;
+    padding: 6px 12px;
+    font-size: 12px;
+    letter-spacing: 1px;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  }
+  .sceneBtn.active {
+    background: rgba(120,200,255,0.26);
+    border-color: rgba(120,200,255,0.75);
+    color: #bfe6ff;
+  }
+</style>
+</head>
+<body>
+  <div id="container"></div>
+  <div id="status">正在加载模型…</div>
+  <div id="debug"></div>
+  <div class="hint">拖动旋转 · 双指缩放 · 停止操作 5 秒自动归位</div>
+  <div id="lightBtn">灯光关</div>
+  <div id="sceneBtns">
+    <button class="sceneBtn active" data-scene="day">白天</button>
+    <button class="sceneBtn" data-scene="dusk">傍晚</button>
+    <button class="sceneBtn" data-scene="night">黑夜</button>
+  </div>
+
+  <script src="three.min.js"></script>
+  <script src="GLTFLoader.js"></script>
+  <script src="OrbitControls.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      var container = document.getElementById('container');
+      var statusEl = document.getElementById('status');
+      var debugEl = document.getElementById('debug');
+
+      // ---------- 渲染器 / 场景 / 相机（按 gltf-viewer.donmccurdy.com 源码 Viewer.js 复刻） ----------
+      var scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x191919); // viewer 默认 bgColor #191919
+
+      var camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.01, 1000); // viewer: new PerspectiveCamera(50, aspect, 0.01, 1000)
+
+      var renderer = new THREE.WebGLRenderer({ antialias: true }); // viewer: { antialias: true }
+      renderer.setClearColor(0xCCCCCC); // viewer: renderer.setClearColor(13421772)
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.useLegacyLights = false; // 物理光照模式，对应新版 three 默认；Neutral 环境 PointLight 强度 900 依赖此模式
+      renderer.toneMapping = THREE.ACESFilmicToneMapping; // 场景美化：ACES 柔和高光，防天空/车身高光过曝
+      renderer.toneMappingExposure = 0.95; // ACES 下略压高光，亮度由场景参数补偿（防过曝）
+      if (typeof renderer.outputEncoding !== 'undefined') { renderer.outputEncoding = THREE.sRGBEncoding; } // r148 须显式 sRGB 输出（新版本默认）
+      container.appendChild(renderer.domElement);
+
+      // ---------- 控制器（旋转 + 缩放），限制仰角避免翻到车底 ----------
+      var controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.08;
+      controls.enablePan = false;
+      controls.enableZoom = true;
+      controls.rotateSpeed = 0.8;
+      controls.zoomSpeed = 1.0;
+      controls.minPolarAngle = 0.12;
+      controls.maxPolarAngle = Math.PI * 0.51; // 略低于齐平，但不翻到底盘以下
+
+      // ---------- 补光（viewer 源码 Viewer.js addLights()：AmbientLight + DirectionalLight 挂在相机上，跟随视角） ----------
+      var ambientLight = null;
+      var mainLight = null;
+      function buildLights() {
+        ambientLight = new THREE.AmbientLight(0xffffff, 0.3);            // new AmbientLight(ambientColor, ambientIntensity=0.3)
+        ambientLight.name = 'ambient_light';
+        camera.add(ambientLight);
+        mainLight = new THREE.DirectionalLight(0xffffff, 0.8 * Math.PI * 0.3); // viewer 方向光 0.8π，降权 0.3 让环境明暗浮现
+        mainLight.position.set(0.5, 0, 0.866);                               // 固定方向，随相机转动
+        mainLight.name = 'main_light';
+        camera.add(mainLight);
+        scene.add(camera);
+      }
+
+      // ---------- Neutral 环境（viewer 默认 environment="neutral"，源码 bundle 中 Neutral 场景类完整复刻） ----------
+      // 结构：BackSide 巨型箱体(MeshStandardMaterial) + 6 块反射板(InstancedMesh 等价拆分) + 6 根发光灯管(MeshBasicMaterial)
+      //      + PointLight(0xffffff, intensity=900, distance=28, decay=2)
+      // envRefs 持有房间/反射板/灯管材质引用，供三场景切换时调整 emissive 并重新烘焙 IBL。
+      var envRefs = null;
+      function buildNeutralScene(sceneName) {
+        // 环境材质按场景预设初始化（默认白天），使 buildEnvironment(name) 烘焙时即带对应亮度/色调
+        var s = (typeof SCENES !== 'undefined' && SCENES[sceneName]) || { roomColor: 0xffffff, roomIntensity: 1.0, boxColor: 0xffffff, boxIntensity: 8.0, tubeScale: 1.0 };
+        var geometry = new THREE.BoxGeometry();
+        if (geometry.deleteAttribute) geometry.deleteAttribute('uv');
+
+        var roomMat = new THREE.MeshStandardMaterial({ side: THREE.BackSide, emissive: s.roomColor, emissiveIntensity: s.roomIntensity }); // Neutral 房间（纯自发光，避免 PMREM 内部 legacy 点光过曝）
+        var boxMat = new THREE.MeshStandardMaterial({ emissive: s.boxColor, emissiveIntensity: s.boxIntensity });                          // 反射板 + 自发光(更亮制造光带)
+
+        var light = new THREE.PointLight(0xffffff, 0, 28, 2); // 点光置 0，环境完全由自发光贡献，避免 PMREM legacy 过曝
+        light.position.set(0.418, 16.199, 0.3);
+
+        envRefs = { roomMat: roomMat, boxMat: boxMat, tubes: [], tubeBase: [] };
+        var envScene = new THREE.Scene();
+        envScene.add(light);
+
+        var room = new THREE.Mesh(geometry, roomMat);
+        room.position.set(-0.757, 13.219, 0.717);
+        room.scale.set(31.713, 28.305, 28.591);
+        envScene.add(room);
+
+        var boxData = [
+          { p: [-10.906, 2.009, 1.846], r: [0, -0.195, 0], s: [2.328, 7.905, 4.651] },
+          { p: [-5.607, -0.754, -0.758], r: [0, 0.994, 0], s: [1.97, 1.534, 3.955] },
+          { p: [6.167, 0.857, 7.803], r: [0, 0.561, 0], s: [3.927, 6.285, 3.687] },
+          { p: [-2.017, 0.018, 6.124], r: [0, 0.333, 0], s: [2.002, 4.566, 2.064] },
+          { p: [2.291, -0.756, -2.621], r: [0, -0.286, 0], s: [1.546, 1.552, 1.496] },
+          { p: [-2.193, -0.369, -5.547], r: [0, 0.516, 0], s: [3.875, 3.487, 2.986] }
+        ];
+        for (var i = 0; i < boxData.length; i++) {
+          var m = new THREE.Mesh(geometry, boxMat);
+          m.position.set(boxData[i].p[0], boxData[i].p[1], boxData[i].p[2]);
+          m.rotation.set(boxData[i].r[0], boxData[i].r[1], boxData[i].r[2]);
+          m.scale.set(boxData[i].s[0], boxData[i].s[1], boxData[i].s[2]);
+          envScene.add(m);
+        }
+
+        var tubeData = [
+          { p: [-16.116, 14.37, 8.208], s: [0.1, 2.428, 2.739], v: 50 },
+          { p: [-16.109, 18.021, -8.207], s: [0.1, 2.425, 2.751], v: 50 },
+          { p: [14.904, 12.198, -1.832], s: [0.15, 4.265, 6.331], v: 17 },
+          { p: [-0.462, 8.89, 14.52], s: [4.38, 5.441, 0.088], v: 43 },
+          { p: [3.235, 11.486, -12.541], s: [2.5, 2, 0.1], v: 20 },
+          { p: [0, 20, 0], s: [1, 0.1, 1], v: 100 }
+        ];
+        for (var j = 0; j < tubeData.length; j++) {
+          var tubeMat = new THREE.MeshBasicMaterial();
+          tubeMat.color.setScalar(tubeData[j].v * s.tubeScale);
+          if (envRefs) { envRefs.tubes.push(tubeMat); envRefs.tubeBase.push(tubeData[j].v * s.tubeScale); }
+          var tm = new THREE.Mesh(geometry, tubeMat);
+          tm.position.set(tubeData[j].p[0], tubeData[j].p[1], tubeData[j].p[2]);
+          tm.scale.set(tubeData[j].s[0], tubeData[j].s[1], tubeData[j].s[2]);
+          envScene.add(tm);
+        }
+        return envScene;
+      }
+
+      // ---------- IBL 环境光（viewer: pmremGenerator.fromScene(new NeutralScene) 无 sigma） ----------
+      function buildEnvironment(sceneName) {
+        var pmrem = new THREE.PMREMGenerator(renderer);
+        scene.environment = pmrem.fromScene(buildNeutralScene(sceneName)).texture;
+        pmrem.dispose();
+      }
+
+      // ---------- 白天 / 傍晚 / 黑夜 三场景切换 ----------
+      // 复用 Neutral 环境 + PMREM 结构：只调 roomMat/boxMat/灯管的 emissive（颜色/强度）、
+      // 方向光与半球光的颜色/强度、scene.background 色；不改任何模型材质，不动相机/归位/灯光开关/频谱。
+      var currentScene = 'day';
+      var SCENES = {
+        day: {
+          label: '白天',
+          roomColor: 0xffffff, roomIntensity: 2.1,
+          boxColor: 0xffffff, boxIntensity: 16.0,
+          tubeScale: 1.8,
+          ambientColor: 0xffffff, ambientIntensity: 0.66,
+          lightColor: 0xffffff, lightIntensity: 0.8 * Math.PI * 0.55,
+          bg: 0xbcd8ee,
+          waterColor: 0x3f6a86, waterOpacity: 0.62
+        },
+        dusk: {
+          label: '傍晚',
+          roomColor: 0xffc088, roomIntensity: 1.4,
+          boxColor: 0xffb27a, boxIntensity: 10.0,
+          tubeScale: 1.1,
+          ambientColor: 0xffd9b8, ambientIntensity: 0.45,
+          lightColor: 0xffc08a, lightIntensity: 0.8 * Math.PI * 0.42,
+          bg: 0x46394f,
+          waterColor: 0x3a4c60, waterOpacity: 0.62
+        },
+        night: {
+          label: '黑夜',
+          roomColor: 0x3c4e6e, roomIntensity: 0.85,
+          boxColor: 0x45608c, boxIntensity: 6.0,
+          tubeScale: 0.8,
+          ambientColor: 0x9fb8e0, ambientIntensity: 0.34,
+          lightColor: 0x9fb8ff, lightIntensity: 0.8 * Math.PI * 0.3,
+          bg: 0x0a1220,
+          waterColor: 0x16263a, waterOpacity: 0.66
+        }
+      };
+      // ---------- 天空球：Canvas 动态纹理（白天/傍晚/黑夜） ----------
+      // 大球体 BackSide + MeshBasicMaterial + CanvasTexture；toneMapped=false 防止 ACES 压暗天空。
+      // 画布上半为天空渐变，下半为深水色渐变（模拟水面下的体色，透过半透明水面自然衔接）。
+      // 地平线（画布 y≈H/2）处绘制柔光雾色带，模拟水天交界模糊渐变过渡。
+      var skyCanvas = null, skyCtx = null, skyTexture = null, skyMesh = null;
+      var water = null, reflection = null;
+      var SKY_RADIUS = 250, SKY_W = 1024, SKY_H = 512;
+      var skyClouds = null, skyStars = null;
+      function createSky() {
+        skyCanvas = document.createElement('canvas');
+        skyCanvas.width = SKY_W;
+        skyCanvas.height = SKY_H;
+        skyCtx = skyCanvas.getContext('2d');
+        skyTexture = new THREE.CanvasTexture(skyCanvas);
+        if (typeof THREE.sRGBEncoding !== 'undefined') skyTexture.encoding = THREE.sRGBEncoding; // 贴图按 sRGB 解码，避免颜色失真
+        var mat = new THREE.MeshBasicMaterial({ map: skyTexture, side: THREE.BackSide, toneMapped: false, depthWrite: false });
+        skyMesh = new THREE.Mesh(new THREE.SphereGeometry(SKY_RADIUS, 48, 32), mat);
+        skyMesh.name = 'sky_dome';
+        scene.add(skyMesh);
+      }
+      // 确定性伪随机（避免每帧重绘闪烁）
+      function pseudoRand(seed) {
+        var s = seed >>> 0;
+        return function () { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+      }
+      function drawSkyTexture(name) {
+        if (!skyCtx || !skyTexture) return;
+        var ctx = skyCtx, W = SKY_W, H = SKY_H;
+        var g = ctx.createLinearGradient(0, 0, 0, H);
+        if (name === 'day') {
+          g.addColorStop(0, '#3f7fd1');
+          g.addColorStop(0.36, '#7fb0e0');
+          g.addColorStop(0.47, '#cfe9fb');
+          g.addColorStop(0.50, '#eef7fd');
+          g.addColorStop(0.54, '#b8d8e8');
+          g.addColorStop(0.62, '#3a5f7a');
+          g.addColorStop(1, '#12293d');
+        } else if (name === 'dusk') {
+          g.addColorStop(0, '#2c2c50');
+          g.addColorStop(0.26, '#6b3a63');
+          g.addColorStop(0.42, '#ff9a55');
+          g.addColorStop(0.50, '#ffd9a0');
+          g.addColorStop(0.56, '#e89a6b');
+          g.addColorStop(0.68, '#5c3a4a');
+          g.addColorStop(1, '#1c1430');
+        } else {
+          g.addColorStop(0, '#04070f');
+          g.addColorStop(0.30, '#0d1b2e');
+          g.addColorStop(0.48, '#20354f');
+          g.addColorStop(0.52, '#2a3f5c');
+          g.addColorStop(0.62, '#16273c');
+          g.addColorStop(1, '#050a12');
+        }
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, H);
+
+        // 地平线柔光雾色带：水天交界处模糊渐变过渡（叠加方式提亮）
+        ctx.globalCompositeOperation = 'lighter';
+        var haze = ctx.createLinearGradient(0, H * 0.46, 0, H * 0.58);
+        if (name === 'day') { haze.addColorStop(0, 'rgba(238,247,253,0)'); haze.addColorStop(0.5, 'rgba(238,247,253,0.55)'); haze.addColorStop(1, 'rgba(180,214,236,0)'); }
+        else if (name === 'dusk') { haze.addColorStop(0, 'rgba(255,217,160,0)'); haze.addColorStop(0.5, 'rgba(255,190,130,0.5)'); haze.addColorStop(1, 'rgba(220,140,110,0)'); }
+        else { haze.addColorStop(0, 'rgba(60,84,120,0)'); haze.addColorStop(0.5, 'rgba(70,100,150,0.35)'); haze.addColorStop(1, 'rgba(40,60,90,0)'); }
+        ctx.fillStyle = haze;
+        ctx.fillRect(0, H * 0.46, W, H * 0.12);
+        ctx.globalCompositeOperation = 'source-over';
+
+        if (name === 'day') {
+          drawClouds(ctx, W, H, 1);
+        } else if (name === 'dusk') {
+          // 夕阳：太阳光晕 + 低垂云
+          var sx = W * 0.60, sy = H * 0.44;
+          var sr = 90;
+          var sunG = ctx.createRadialGradient(sx, sy, 0, sx, sy, sr);
+          sunG.addColorStop(0, 'rgba(255,244,214,0.95)');
+          sunG.addColorStop(0.28, 'rgba(255,190,110,0.65)');
+          sunG.addColorStop(1, 'rgba(255,154,85,0)');
+          ctx.fillStyle = sunG;
+          ctx.fillRect(sx - sr, sy - sr, sr * 2, sr * 2);
+          ctx.fillStyle = 'rgba(255,240,205,0.96)';
+          ctx.beginPath(); ctx.arc(sx, sy, 16, 0, Math.PI * 2); ctx.fill();
+          drawClouds(ctx, W, H, 0.35);
+        } else {
+          // 黑夜：月亮 + 银河 + 极光 + 星星
+          var mx = W * 0.74, my = H * 0.20, mr = 70;
+          var mg = ctx.createRadialGradient(mx, my, 0, mx, my, mr);
+          mg.addColorStop(0, 'rgba(242,244,255,0.95)');
+          mg.addColorStop(0.3, 'rgba(200,210,255,0.45)');
+          mg.addColorStop(1, 'rgba(160,180,240,0)');
+          ctx.fillStyle = mg; ctx.fillRect(mx - mr, my - mr, mr * 2, mr * 2);
+          ctx.fillStyle = 'rgba(250,252,255,0.98)';
+          ctx.beginPath(); ctx.arc(mx, my, 20, 0, Math.PI * 2); ctx.fill();
+          // 银河：斜向浅色柔光带（叠光提亮）
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.save();
+          ctx.translate(W * 0.5, H * 0.5);
+          ctx.rotate(-0.42);
+          var mgx = ctx.createLinearGradient(-W * 0.55, 0, W * 0.55, 0);
+          mgx.addColorStop(0, 'rgba(150,180,230,0)');
+          mgx.addColorStop(0.5, 'rgba(170,200,255,0.22)');
+          mgx.addColorStop(1, 'rgba(150,180,230,0)');
+          ctx.fillStyle = mgx;
+          ctx.fillRect(-W * 0.55, -H * 0.045, W * 1.1, H * 0.09);
+          ctx.restore();
+          ctx.globalCompositeOperation = 'source-over';
+          drawStars(ctx, W, H);
+          drawAurora(ctx, W, H);
+        }
+        skyTexture.needsUpdate = true;
+      }
+      // 云朵：白色半透明椭圆簇（固定伪随机位置，避免每帧闪烁）
+      function drawClouds(ctx, W, H, alphaScale) {
+        alphaScale = alphaScale || 1;
+        if (!skyClouds) {
+          var rnd = pseudoRand(20241014);
+          skyClouds = [];
+          for (var i = 0; i < 12; i++) {
+            skyClouds.push({ x: rnd() * W, y: H * (0.10 + rnd() * 0.34), s: 0.6 + rnd() * 1.4, a: 0.18 + rnd() * 0.22 });
+          }
+        }
+        for (var i = 0; i < skyClouds.length; i++) {
+          var c = skyClouds[i];
+          ctx.save();
+          ctx.globalAlpha = c.a * alphaScale;
+          ctx.fillStyle = '#ffffff';
+          ctx.translate(c.x, c.y);
+          ctx.scale(c.s, c.s * 0.5);
+          ctx.beginPath(); ctx.ellipse(0, 0, 46, 16, 0, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.ellipse(24, -6, 26, 11, 0, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.ellipse(-26, -4, 22, 9, 0, 0, Math.PI * 2); ctx.fill();
+          ctx.restore();
+        }
+      }
+      function drawStars(ctx, W, H) {
+        if (!skyStars) {
+          var rnd = pseudoRand(777001);
+          skyStars = [];
+          for (var i = 0; i < 220; i++) {
+            skyStars.push({ x: rnd() * W, y: rnd() * H * 0.44, r: 0.6 + rnd() * 1.4, a: 0.35 + rnd() * 0.55 });
+          }
+        }
+        ctx.fillStyle = '#ffffff';
+        for (var i = 0; i < skyStars.length; i++) {
+          var st = skyStars[i];
+          ctx.globalAlpha = st.a;
+          ctx.fillRect(st.x, st.y, st.r, st.r);
+        }
+        ctx.globalAlpha = 1;
+      }
+      // 极光：绿/紫半透明波浪渐变带（沿地平线上方）
+      function drawAurora(ctx, W, H) {
+        function band(baseY, amp, color, alpha) {
+          ctx.save();
+          ctx.globalAlpha = alpha;
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.moveTo(0, H);
+          var steps = 24;
+          for (var i = 0; i <= steps; i++) {
+            var x = (i / steps) * W;
+            var y = baseY + Math.sin(i * 0.55 + 0.6) * amp * Math.sin(i * 0.23 + 1.2) * 0.7;
+            ctx.lineTo(x, y);
+          }
+          ctx.lineTo(W, H);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        }
+        band(H * 0.30, H * 0.035, 'rgba(90,255,170,0.14)', 1);
+        band(H * 0.38, H * 0.045, 'rgba(150,120,255,0.12)', 1);
+        band(H * 0.44, H * 0.028, 'rgba(90,220,160,0.10)', 1);
+      }
+
+      // ---------- 水面地面 + 模型镜像倒影 ----------
+      // 水面：大平面 y≈0，半透明蓝灰、高金属低粗糙（强环境反射）；depthWrite=false 保证其下倒影可见。
+      // 倒影：GLB 整体克隆，scale.y=-1 置于水面下，材质半透明、不写深度、toneMapped 关闭，
+      //       玻璃 transmission 简化为半透明色块、发光 emissive 归零（避免倒影自带辉光）。
+      function createWater() {
+        var geo = new THREE.PlaneGeometry(300, 300);
+        var mat = new THREE.MeshStandardMaterial({
+          color: 0x2a4a63,
+          metalness: 0.92,
+          roughness: 0.12,
+          transparent: true,
+          opacity: 0.62,
+          side: THREE.DoubleSide,
+          depthWrite: false
+        });
+        water = new THREE.Mesh(geo, mat);
+        water.name = 'water_plane';
+        water.rotation.x = -Math.PI / 2;
+        water.position.y = -0.01; // 略低于车底接触面，避免 y=0 共面闪烁
+        water.renderOrder = 1; // 先画水面，倒影后画叠加其上（倒影贡献更明显）
+        scene.add(water);
+      }
+      function buildReflection() {
+        if (!model) return;
+        reflection = model.clone();
+        reflection.name = 'model_reflection';
+        reflection.traverse(function (o) {
+          if (!o.isMesh || !o.material) return;
+          var arr = Array.isArray(o.material) ? o.material : [o.material];
+          for (var i = 0; i < arr.length; i++) {
+            var m = arr[i].clone();
+            m.transparent = true;
+            m.opacity = 0.40;
+            m.depthWrite = false;
+            m.depthTest = true;
+            m.side = THREE.DoubleSide;
+            if (m.toneMapped !== undefined) m.toneMapped = false;
+            if (m.transmission !== undefined) m.transmission = 0;
+            if (m.emissiveIntensity !== undefined) m.emissiveIntensity = 0;
+            if (m.emissive && m.emissive.isColor) m.emissive.setScalar(0);
+            arr[i] = m;
+          }
+          o.material = arr.length === 1 ? arr[0] : arr;
+        });
+        reflection.scale.set(1, -1, 1);
+        reflection.position.copy(model.position);
+        reflection.position.y = -0.05; // 镜像顶略低于水面，避免与水面对撞/穿插
+        reflection.renderOrder = 2;
+        scene.add(reflection);
+      }
+
+      function applyScenePreset(name) {
+        var s = SCENES[name];
+        if (!s) return;
+        buildEnvironment(name); // 用预设参数重建 Neutral 场景并烘焙 IBL（envRefs 同步为新的引用）
+        if (!envRefs) return;
+        // 显式设置一次（与 buildNeutralScene 初始值一致，幂等）
+        envRefs.roomMat.emissive.set(s.roomColor);
+        envRefs.roomMat.emissiveIntensity = s.roomIntensity;
+        envRefs.boxMat.emissive.set(s.boxColor);
+        envRefs.boxMat.emissiveIntensity = s.boxIntensity;
+        for (var i = 0; i < envRefs.tubes.length; i++) {
+          envRefs.tubes[i].color.setScalar(envRefs.tubeBase[i]);
+        }
+        if (ambientLight) { ambientLight.color.set(s.ambientColor); ambientLight.intensity = s.ambientIntensity; }
+        if (mainLight) { mainLight.color.set(s.lightColor); mainLight.intensity = s.lightIntensity; }
+        scene.background.set(s.bg);
+        drawSkyTexture(name); // 按场景重绘天空球 Canvas 纹理
+        if (water) {
+          water.material.color.set(s.waterColor || 0x2a4a63);
+          if (s.waterOpacity) water.material.opacity = s.waterOpacity;
+        }
+        currentScene = name;
+      }
+      function setScene(name) {
+        applyScenePreset(name);
+        var btns = document.querySelectorAll('.sceneBtn');
+        for (var i = 0; i < btns.length; i++) {
+          btns[i].classList.toggle('active', btns[i].getAttribute('data-scene') === name);
+        }
+      }
+      var sceneBtnEls = document.querySelectorAll('.sceneBtn');
+      for (var si = 0; si < sceneBtnEls.length; si++) {
+        (function (btn) {
+          btn.addEventListener('click', function () { setScene(btn.getAttribute('data-scene')); });
+        })(sceneBtnEls[si]);
+      }
+
+      // ---------- 模型状态 ----------
+      var model = null;
+      var center = new THREE.Vector3(0, 0, 0);
+      var radius = 1;
+      var homePos = new THREE.Vector3(-4, 2, 4);
+      var homeTarget = new THREE.Vector3(0, 0, 0);
+
+      // ---------- 归位相机自适应屏幕 ----------
+      // 归位方向固定为模型后方偏左 45°（与初始视角一致），距离按可见 mesh 包围盒在相机坐标系的
+      // 投影计算：水平目标占屏 HOME_TARGET_H=0.6（两端各留 1/5），竖直不溢出（留 6% 边距），取两者更远者。
+      // 只统计可见 mesh（跳过隐藏 mesh / 环境物体），避免包围盒虚大导致实测占屏偏小（修复原 ~40% 问题）。
+      // 窗口尺寸变化时 onResize 重算；仅更新归位目标，不打扰当前自由视角/归位缓动。
+      var homeFrac = 0; // 归位后模型水平占屏比例（调试）
+      var HOME_TARGET_H = 0.6; // 水平占屏目标系数（两端各留 1/5）
+      function getVisibleBounds(obj) {
+        var box = new THREE.Box3();
+        var tmp = new THREE.Box3();
+        obj.traverse(function (o) {
+          if (o.isMesh && o.visible) {
+            tmp.setFromObject(o);
+            box.union(tmp);
+          }
+        });
+        return box;
+      }
+      function computeHomePose() {
+        if (!model) return;
+        var box = getVisibleBounds(model);
+        if (box.isEmpty()) return;
+        var c = box.getCenter(new THREE.Vector3());
+        var sz = box.getSize(new THREE.Vector3());
+
+        var fwd = new THREE.Vector3(0, 0, -1);
+        var up = new THREE.Vector3(0, 1, 0);
+        var right = new THREE.Vector3().crossVectors(fwd, up).normalize();
+        var left = right.clone().negate();
+        var dirVec = fwd.clone().multiplyScalar(0.7).add(left.clone().multiplyScalar(0.7)).normalize(); // 归位方向：后方偏左 45°
+
+        // 相机坐标基：相机看向 center，前方 = -dirVec
+        var viewDir = dirVec.clone().negate();
+        var camRight = new THREE.Vector3().crossVectors(viewDir, up).normalize();
+        var camUp = new THREE.Vector3().crossVectors(camRight, viewDir).normalize();
+
+        // 可见包围盒 8 顶点在相机坐标系的投影半宽 / 半高（取最大绝对值，保守）
+        var half = sz.clone().multiplyScalar(0.5);
+        var xHalf = 0, yHalf = 0;
+        for (var ix = -1; ix <= 1; ix += 2) {
+          for (var iy = -1; iy <= 1; iy += 2) {
+            for (var iz = -1; iz <= 1; iz += 2) {
+              var p = new THREE.Vector3(c.x + ix * half.x, c.y + iy * half.y, c.z + iz * half.z).sub(c);
+              var px = Math.abs(p.dot(camRight));
+              var py = Math.abs(p.dot(camUp));
+              if (px > xHalf) xHalf = px;
+              if (py > yHalf) yHalf = py;
+            }
+          }
+        }
+
+        var tanV = Math.tan(camera.fov * Math.PI / 180 / 2); // 竖直半角
+        var tanH = tanV * (window.innerWidth / window.innerHeight); // 水平半角（由 aspect 决定）
+        var dV = yHalf / (tanV * 0.94);  // 竖直约束：不溢出，留 6% 边距
+        var dH = xHalf / (HOME_TARGET_H * tanH); // 水平约束：占屏 60%（两端各留 20%）
+        var d = Math.max(dV, dH);          // 取更远者：竖直不溢出优先，水平尽量贴近 60%
+
+        homePos.copy(c).add(dirVec.clone().multiplyScalar(d));
+        homePos.y = c.y + 0.06;
+        homeTarget.copy(c);
+        homeTarget.y = c.y;
+        homeFrac = xHalf / (d * tanH); // 记录实际水平占屏比例（调试）
+      }
+
+      // ---------- 模型加载（GLTFLoader 原生加载，加载后不做任何材质 / 属性手动修改） ----------
+      var loader = new GLTFLoader();
+      loader.load('model/XPP7_Model_v1.glb', function (gltf) {
+        model = gltf.scene;
+        scene.add(model);
+
+        // 车底贴地：仅调整模型摆放位置，不触碰任何材质属性
+        var preBox = new THREE.Box3().setFromObject(model);
+        model.position.y = -preBox.min.y;
+        buildReflection(); // 镜像倒影（scale.y=-1 半透明置于水面下）
+
+        var box = new THREE.Box3().setFromObject(model);
+        center = box.getCenter(new THREE.Vector3());
+        var size = box.getSize(new THREE.Vector3());
+        radius = Math.max(size.length() / 2, 0.5);
+
+        controls.minDistance = radius * 0.35;
+        controls.maxDistance = radius * 6.5;
+
+        // 相机初始位置：按包围盒与屏幕尺寸自适应（水平占屏 3/5、竖直不溢出）
+        computeHomePose();
+
+        camera.position.copy(homePos);
+        controls.target.copy(homeTarget);
+        controls.update();
+
+        statusEl.textContent = 'P7 SHOW · 2020 XPeng P7 已加载 · 拖动旋转 / 双指缩放';
+        if (debugEl) {
+          var nMat = 0, tMat = 0, mMat = 0;
+          gltf.scene.traverse(function (o) {
+            if (o.isMesh && o.material) {
+              var arr = Array.isArray(o.material) ? o.material : [o.material];
+              nMat += arr.length;
+              for (var i = 0; i < arr.length; i++) {
+                if (arr[i].isMeshPhysicalMaterial && arr[i].transmission > 0) tMat++;
+                if (arr[i].isMeshStandardMaterial) mMat++;
+              }
+            }
+          });
+          var envInfo = scene.environment ? (scene.environment.image.width + 'x' + scene.environment.image.height) : 'null';
+          debugEl.textContent = 'env=' + envInfo + ' mats=' + nMat + ' std=' + mMat + ' trans=' + tMat + ' homeFrac=' + homeFrac.toFixed(2);
+        }
+
+        // ---------- 灯光开关：双 mesh visible 切换 ----------
+        // Mesh.008（Obj3d66-19967172-10-383）绑定 light_off=关灯态；Mesh.061（Obj3d66-19967172-10-383.001）绑定 light_on=开灯态。
+        // 定位按材质名（light_off / light_on）匹配，不依赖节点/网格命名；切换只改 visible，避免旧渲染器材质 uniform 失效问题。
+        var lightMesh = null, lightOnMesh = null;
+        gltf.scene.traverse(function (o) {
+          if (!o.isMesh) return;
+          var mm = Array.isArray(o.material) ? o.material[0] : o.material;
+          if (!mm || !mm.name) return;
+          if (mm.name === 'light_off') lightMesh = o;
+          if (mm.name === 'light_on') lightOnMesh = o;
+        });
+        var lightBtn = document.getElementById('lightBtn');
+        if (lightMesh && lightOnMesh) {
+          var lightOn = false;
+          function applyLight(on) {
+            lightOn = on;
+            lightMesh.visible = !on;
+            lightOnMesh.visible = on;
+            // 倒影中的灯光 mesh 同步切换（材质名匹配，克隆保留了名称）
+            if (reflection) {
+              reflection.traverse(function (ro) {
+                if (!ro.isMesh) return;
+                var rm = Array.isArray(ro.material) ? ro.material[0] : ro.material;
+                if (!rm || !rm.name) return;
+                if (rm.name === 'light_off') ro.visible = !on;
+                if (rm.name === 'light_on') ro.visible = on;
+              });
+            }
+          }
+          function toggleLight() {
+            lightOn = !lightOn;
+            applyLight(lightOn);
+            lightBtn.textContent = lightOn ? '灯光开' : '灯光关';
+            lightBtn.classList.toggle('on', lightOn);
+          }
+          lightBtn.addEventListener('click', toggleLight);
+          lightBtn.style.display = 'inline-block';
+          applyLight(false);
+          if (debugEl) debugEl.textContent += ' | light=OK';
+        } else {
+          lightBtn.textContent = '灯光不可用';
+          lightBtn.classList.add('disabled');
+          lightBtn.style.display = 'inline-block';
+          if (debugEl) debugEl.textContent += ' | light=MISS';
+        }
+
+        resetIdle();
+      }, undefined, function (err) {
+        statusEl.textContent = '模型加载失败：' + (err && err.message ? err.message : '未知错误');
+      });
+
+      // ---------- 无操作自动隐藏提示 / 5 秒自动归位 ----------
+      var hintEl = document.querySelector('.hint');
+      var IDLE_MS = 5000;
+      var UI_HIDE_MS = 1500;
+      var uiVisible = true;
+      var lastActivity = Date.now();
+      var isTweening = false;
+
+      function showUI() {
+        if (uiVisible) return;
+        uiVisible = true;
+        hintEl.style.opacity = '1';
+      }
+      function hideUI() {
+        if (!uiVisible) return;
+        uiVisible = false;
+        hintEl.style.opacity = '0';
+      }
+      // 任何用户活动：刷新计时并显示提示
+      function resetIdle() { lastActivity = Date.now(); showUI(); }
+      function beginTween() { isTweening = true; controls.enabled = false; }
+
+      renderer.domElement.addEventListener('pointerdown', resetIdle);
+      renderer.domElement.addEventListener('wheel', resetIdle);
+      renderer.domElement.addEventListener('touchstart', resetIdle, { passive: true });
+      controls.addEventListener('change', function () { if (!isTweening) resetIdle(); });
+      window.addEventListener('pointerdown', resetIdle);
+      window.addEventListener('touchstart', resetIdle, { passive: true });
+
+      setInterval(function () {
+        if (Date.now() - lastActivity >= UI_HIDE_MS) hideUI();
+        if (!model || isTweening) return;
+        if (Date.now() - lastActivity >= IDLE_MS) beginTween();
+      }, 250);
+
+      // ---------- 底部实时音频频谱（Android 原生层推送 + Canvas 柱状条，不触碰模型材质） ----------
+      // 设计：Canvas 立即创建并挂载；频谱数据由 Android 原生层经 JS 桥注入；
+      // 无真实数据时柱条画极矮基线，不做模拟。
+      var freqCanvas = null, freqCtx = null;
+      var bridgeBins = null;       // 桥接口轮询缓存（evaluateJavascript 推送失败时兜底）
+      var lastBridgePoll = 0;      // 上次轮询桥接口时间
+      var prevHeights = null;      // 上一帧柱高（用于平滑过渡渐变）
+      var SMOOTH = 0.92;           // 平滑系数：上一帧权重，越大过渡越绵
+      function initAudioSpectrum() {
+        // 1) 无条件创建 Canvas：保证频谱容器永远存在
+        try {
+          if (!freqCanvas) {
+            freqCanvas = document.createElement('canvas');
+            freqCanvas.id = 'freqCanvas';
+            document.body.appendChild(freqCanvas);
+            freqCtx = freqCanvas.getContext('2d');
+            sizeFreqCanvas();
+          }
+        } catch (e) { /* 兜底失败不影响车模 */ }
+
+        // 2) 音频频谱数据由 Android 原生层通过 evaluateJavascript 推送至
+        //    window.__audioFreq；此处先尝试通过 AndroidAudioBridge 轮询一次，
+        //    避免页面刚加载时短暂无数据。
+        try {
+          if (window.AndroidAudioBridge) {
+            var s = window.AndroidAudioBridge.getSpectrum();
+            if (s && s.length > 2) bridgeBins = JSON.parse(s);
+          }
+        } catch (e) { bridgeBins = null; }
+      }
+      function sizeFreqCanvas() {
+        if (!freqCanvas) return;
+        var dpr = Math.min(window.devicePixelRatio || 1, 2);
+        var w = window.innerWidth;
+        var h = Math.max(40, Math.round(window.innerHeight / 5)); // 屏幕高度的五分之一
+        freqCanvas.style.width = w + 'px';
+        freqCanvas.style.height = h + 'px';
+        freqCanvas.width = Math.max(1, Math.round(w * dpr));
+        freqCanvas.height = Math.max(1, Math.round(h * dpr));
+        if (freqCtx) freqCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+      function drawFreq() {
+        if (!freqCanvas || !freqCtx) return;
+        var ctx = freqCtx;
+        var W = window.innerWidth;
+        var H = Math.max(40, Math.round(window.innerHeight / 5));
+        ctx.clearRect(0, 0, W, H);
+        var N = 64; // 前 64 bin
+        var bw = W / N;
+
+        // 循环外一次性读取真实频谱数据（避免每根柱条重复读取/轮询）
+        var ab = window.__audioFreq; // Android 原生层推送的音频频谱（0~1 数组）
+        if (!ab || !Array.isArray(ab) || ab.length < 64) {
+          // 推送未就绪：轮询 JS 桥兜底（限频 200ms）
+          if (Date.now() - lastBridgePoll > 200) {
+            lastBridgePoll = Date.now();
+            try {
+              if (window.AndroidAudioBridge) {
+                var bs = window.AndroidAudioBridge.getSpectrum();
+                bridgeBins = (bs && bs.length > 2) ? JSON.parse(bs) : null;
+              } else { bridgeBins = null; }
+            } catch (e) { bridgeBins = null; }
+          }
+          ab = bridgeBins;
+        }
+        var hasReal = !!(ab && Array.isArray(ab) && ab.length >= 64);
+
+        // 柱条最高约 Canvas 高度的 60%，顶部大幅留空更不易触顶；target 再加 0.85 软上限防齐平触顶
+        var hmax = Math.max(4, Math.round(H * 0.60));
+        var baseH = Math.max(1, Math.round(H * 0.02)); // 极矮基线：无数据时仍可见但不掩盖真实状态
+        if (!prevHeights) { prevHeights = new Array(N).fill(0); }
+        for (var i = 0; i < N; i++) {
+          var target = 0;
+          if (hasReal) {
+            target = ab[i];
+            if (target < 0) target = 0; if (target > 0.85) target = 0.85;
+          }
+          // 指数平滑过渡：上升/下降都按 SMOOTH 权重向目标渐变，消除一顿一顿的跳变
+          var v = prevHeights[i] * SMOOTH + target * (1 - SMOOTH);
+          if (Math.abs(v - prevHeights[i]) < 0.002) { v = target; } // 已收敛则直接到位
+          prevHeights[i] = v;
+          var h = Math.max(baseH, Math.round(Math.pow(v, 1.5) * hmax));
+          var x = i * bw + bw * 0.08;
+          var w = bw * 0.84;
+          var y = H - h - 2;
+          ctx.fillStyle = 'rgba(255,255,255,' + (0.16 + v * 0.34).toFixed(2) + ')';
+          ctx.fillRect(x, y, w, h);
+          if (v > 0.55) {
+            ctx.fillStyle = 'rgba(255,255,255,' + (0.3 + v * 0.45).toFixed(2) + ')';
+            ctx.fillRect(x, y, w, Math.min(2, h));
+          }
+        }
+      }
+
+      // ---------- 窗口适配 ----------
+      function onResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        sizeFreqCanvas();
+        if (model) computeHomePose(); // 屏幕尺寸变化时按新视口重算归位目标
+      }
+      window.addEventListener('resize', onResize);
+      window.addEventListener('orientationchange', function () { setTimeout(onResize, 250); });
+
+      // ---------- 渲染循环 ----------
+      function animate() {
+        requestAnimationFrame(animate);
+        drawFreq();
+        // 归位
+        if (isTweening) {
+          camera.position.lerp(homePos, 0.06);
+          controls.target.lerp(homeTarget, 0.06);
+          camera.lookAt(controls.target);
+          if (camera.position.distanceTo(homePos) < 0.02 && controls.target.distanceTo(homeTarget) < 0.02) {
+            camera.position.copy(homePos);
+            controls.target.copy(homeTarget);
+            camera.lookAt(controls.target);
+            controls.update();
+            isTweening = false;
+            controls.enabled = true;
+            resetIdle();
+          }
+        } else {
+          controls.update();
+        }
+        if (reflection && model) {
+          reflection.position.x = model.position.x;
+          reflection.position.z = model.position.z;
+          reflection.rotation.copy(model.rotation);
+        }
+        renderer.render(scene, camera);
+      }
+
+      buildLights();
+      createSky();   // 天空球：Canvas 动态纹理大球（半径 250，包裹相机）
+      createWater(); // 水面平面 y≈0（半透明蓝灰，高金属低粗糙）
+      applyScenePreset('day'); // 默认白天场景（环境烘焙、方向光、背景色与天空纹理重绘）
+      initAudioSpectrum();
+      animate();
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,1923 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>P7 SHOW</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0a1420; font-family: "Microsoft YaHei", system-ui, sans-serif; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+  body { margin: 0; background: #191919; } /* B项：画布透明后兜底深色底，保证歌词从车模轮廓外可读 */
+  #container { position: fixed; inset: 0; }
+  #container canvas { display: block; }
+  /* 左上角 24 小时制数字时钟（点击弹出设置浮窗）：白色无衬线、无背景/边框/阴影 */
+  #clock {
+    position: fixed;
+    top: 2.2vw;
+    left: 2.4vw;
+    z-index: 5;
+    color: #ffffff;
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    background: none;
+    border: none;
+    box-shadow: none;
+    text-shadow: none;
+    line-height: 1.12;
+    cursor: pointer;
+    pointer-events: auto; /* 仅时钟区域可点，不拦截其余 3D 操作 */
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  #clockTime { font-size: 7vw; font-weight: 600; letter-spacing: 0.05em; }
+  #clockDate { font-size: 2.6vw; opacity: 0.92; margin-top: 0.2vw; }
+  /* 红绿灯倒计时卡片（左上角、时钟下方）：黑色半透明底、圆角、小号字体，只读展示不拦截 3D 交互 */
+  #lightCard {
+    position: fixed;
+    top: 14.6vw; /* 比原 12.2vw 再下移约 2.4vw（本轮 UI 微调） */
+    left: 2.4vw;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 0.7vw;
+    background: rgba(0,0,0,0.55);
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 1.4vw;
+    padding: 0.7vw 1.2vw;
+    font-size: 1.35vw;
+    letter-spacing: 0.08vw;
+    color: rgba(255,255,255,0.92);
+    line-height: 1.2;
+    pointer-events: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  #lightDot {
+    width: 1.5vw;
+    height: 1.5vw;
+    border-radius: 50%;
+    background: transparent;
+    box-shadow: 0 0 0.6vw rgba(255,255,255,0.35);
+    flex: none;
+  }
+  #lightDot.off { background: rgba(255,255,255,0.25); box-shadow: none; }
+  #lightDot.red { background: #ff4d4f; box-shadow: 0 0 0.8vw rgba(255,77,79,0.7); }
+  #lightDot.green { background: #52c41a; box-shadow: 0 0 0.8vw rgba(82,196,26,0.7); }
+  #lightDot.yellow { background: #f5c518; box-shadow: 0 0 0.8vw rgba(245,197,24,0.7); }
+  /* 右上角歌曲信息（歌名大号 + 歌手小号，两行靠右）：只读展示，不拦截 3D 交互 */
+  #songMeta {
+    position: fixed;
+    right: 1.5vw;
+    bottom: calc(20vh + 8px); /* 右下方：底部频谱条（约 1/5 屏高）上方，实际位置由 sizeFreqCanvas 同步 */
+    z-index: 30;
+    text-align: right;
+    pointer-events: none;
+    -webkit-user-select: none;
+    user-select: none;
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    line-height: 1.25;
+  }
+  #songTitle {
+    font-size: 3.6vh; /* 以屏幕纵向为基准：全屏/分屏高度一致，字号不随分屏宽度变化 */
+    font-weight: 600;
+    color: #ffffff;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.9), 0 0 3px rgba(0,0,0,0.8), 1px 1px 2px rgba(0,0,0,0.9), -1px -1px 2px rgba(0,0,0,0.9);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 60vw;
+  }
+  #songArtist {
+    font-size: 2.2vh; /* 以屏幕纵向为基准，与歌名同口径 */
+    color: rgba(255,255,255,0.78);
+    text-shadow: 0 1px 2px rgba(0,0,0,0.9), 0 0 3px rgba(0,0,0,0.8), 1px 1px 2px rgba(0,0,0,0.9), -1px -1px 2px rgba(0,0,0,0.9);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 40vw;
+  }
+  #status { position: fixed; left: 2vw; bottom: 2vw; color: rgba(255,255,255,0.55); font-size: 11px; letter-spacing: 1px; text-shadow: 0 1px 3px rgba(0,0,0,0.7); z-index: 10; pointer-events: none; opacity: 0.6; } /* 加载说明文字：屏幕最左下方（本轮 UI 微调） */
+  #freqCanvas { position: fixed; left: 0; bottom: 0; width: 100%; height: 48px; z-index: 20; pointer-events: none; display: block; }
+  #lightBtn {
+    display: none; /* 主界面悬浮按钮：不再显示（保留 DOM 与点击逻辑供浮窗复用） */
+    position: fixed; left: 1.8vw; top: calc(50% - 9.3vw); z-index: 30;
+    background: rgba(20,32,48,0.55);
+    color: rgba(255,255,255,0.92);
+    border: 1px solid rgba(255,255,255,0.28);
+    border-radius: 2.2vw;
+    padding: 0.9vw 1.8vw;
+    font-size: 1.45vw;
+    letter-spacing: 0.12vw;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease, opacity 0.35s ease;
+  }
+  #lightBtn.on {
+    background: rgba(255,210,120,0.26);
+    border-color: rgba(255,210,120,0.75);
+    color: #ffd98a;
+  }
+  #lightBtn.disabled { opacity: 0.4; cursor: default; }
+  #sceneBtns {
+    display: none; /* 主界面悬浮按钮组：不再显示（保留 DOM 与点击逻辑供浮窗复用） */
+    flex-direction: column;
+    gap: 0.9vw;
+    position: fixed; left: 1.8vw; top: calc(50% - 4.5vw);
+    z-index: 30;
+    opacity: 1;
+    transition: opacity 0.35s ease;
+  }
+  /* 场景/灯光按钮全局样式（主界面隐藏按钮与左侧浮窗共用） */
+  .skyBtn {
+    background: rgba(20,32,48,0.55);
+    color: rgba(255,255,255,0.92);
+    border: 1px solid rgba(255,255,255,0.28);
+    border-radius: 2.2vw;
+    padding: 0.9vw 1.8vw;
+    font-size: 1.45vw;
+    letter-spacing: 0.12vw;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  }
+  .skyBtn.active, .skyBtn.on {
+    background: rgba(255,210,120,0.26);
+    border-color: rgba(255,210,120,0.75);
+    color: #ffd98a;
+  }
+  /* ---------- 左侧滑出式设置浮窗（drawer） ---------- */
+  #drawer {
+    position: fixed; left: 0; top: 0; bottom: 0;
+    width: 33vw;
+    background: rgba(20,32,48,0.85);
+    border-radius: 0 2.2vw 2.2vw 0; /* 圆角右缘 */
+    z-index: 40; /* 高于 3D 画布与悬浮按钮 */
+    transform: translateX(-100%);
+    padding: 4vw 2.2vw;
+    display: flex;
+    flex-direction: column;
+    gap: 1.4vw;
+    pointer-events: none; /* 完全收起时不拦截左侧 3D 操作，由 JS 跟手时恢复 auto */
+    will-change: transform;
+  }
+  #drawerTitle {
+    font-size: 2.2vw;
+    letter-spacing: 0.2vw;
+    color: rgba(255,255,255,0.95);
+    text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+    margin-bottom: 0.6vw;
+  }
+  /* 抽屉内部滚动容器：标题/关闭按钮固定不动，其余内容超长时向下滚动查看 */
+  #drawerScroll {
+    flex: 1 1 auto;
+    min-height: 0; /* flex 子项允许收缩，溢出触发滚动 */
+    overflow-y: auto;
+    scrollbar-width: none;      /* Firefox 隐藏滚动条 */
+    -ms-overflow-style: none;   /* IE/Edge 隐藏滚动条 */
+    display: flex;
+    flex-direction: column;
+    gap: 1.4vw;
+  }
+  #drawerScroll::-webkit-scrollbar { display: none; }
+  #drawer .skyBtn { width: 100%; text-align: center; }
+  /* 微信扫码绑定激活二维码展示区（设置浮窗内，红绿灯按钮下方） */
+  #lightQrBox {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1vw;
+    background: rgba(0,0,0,0.45);
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 1.6vw;
+    padding: 1.4vw;
+  }
+  #lightQrImg {
+    width: 20vw;
+    height: 20vw;
+    border-radius: 0.8vw;
+    background: #ffffff;
+    object-fit: contain;
+  }
+  #lightQrStatus {
+    font-size: 1.15vw;
+    letter-spacing: 0.08vw;
+    color: rgba(255,255,255,0.92);
+    text-align: center;
+    line-height: 1.4;
+  }
+  #drawerCloseBtn {
+    position: absolute; top: 2.4vw; right: 2.4vw;
+    width: 4.4vw; height: 4.4vw;
+    background: rgba(255,255,255,0.12);
+    color: rgba(255,255,255,0.92);
+    border: 1px solid rgba(255,255,255,0.28);
+    border-radius: 50%;
+    font-size: 2.2vw;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 1;
+  }
+  /* 右侧歌词面板：横屏显示，右缘上偏，宽约 1/3 屏宽、高约 40% 屏高；
+     无背景框（透明），纯文字白色带黑边阴影 */
+  #lyricPanel {
+    display: none;
+    position: fixed;
+    right: 1vw;
+    top: 1vw;
+    width: calc(13.333vw - 1.6vw);
+    height: 16vh;
+    z-index: 30; /* v5：屏幕固定层，右上角，不随 3D 镜头旋转 */
+    padding: 0.5vw 0.7vw;
+    color: #ffffff;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.9), 0 0 3px rgba(0,0,0,0.8), 1px 1px 2px rgba(0,0,0,0.9), -1px -1px 2px rgba(0,0,0,0.9);
+    pointer-events: none;
+    overflow: hidden;
+  }
+  #lyricMeta {
+    font-size: 0.72vw;
+    letter-spacing: 0.05vw;
+    opacity: 1;
+    margin-bottom: 0.35vw;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #lyricBody {
+    height: calc(100% - 1.2vw);
+    overflow-y: scroll;
+    scrollbar-width: none;
+    position: relative;
+    /* B项：上下边缘渐变淡出（首尾句 fade out） */
+    -webkit-mask-image: linear-gradient(to bottom, transparent, black 18%, black 82%, transparent);
+    mask-image: linear-gradient(to bottom, transparent, black 18%, black 82%, transparent);
+  }
+  #lyricBody::-webkit-scrollbar { display: none; }
+  .lyric-line {
+    font-size: 0.92vw;
+    line-height: 1.7;
+    color: rgba(160,160,160,0.45); /* B项：已播/未播歌词半透灰 */
+    text-shadow: none; /* 覆盖面板继承阴影，非活跃行无阴影 */
+    padding: 1px 0;
+    white-space: normal;         /* 单句过长自动换行 */
+    word-break: break-word;      /* 中英文/长单词均可断行 */
+    overflow-wrap: break-word;
+    transition: color 0.25s ease, opacity 0.25s ease, transform 0.25s ease;
+  }
+  .lyric-line.active {
+    color: #ffffff; /* B项：当前句白色 + 黑边阴影 */
+    font-weight: 600;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.9), 0 0 3px rgba(0,0,0,0.8), 1px 1px 2px rgba(0,0,0,0.9), -1px -1px 2px rgba(0,0,0,0.9);
+  }
+  #lyricPlaceholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.92vw;
+    color: #ffffff;
+  }
+</style>
+</head>
+<body>
+  <div id="container"></div>
+  <div id="status">正在加载模型…</div>
+
+  <!-- 左上角 24 小时制时钟（点击弹出左侧设置浮窗，替代原左滑手势） -->
+  <div id="clock">
+    <div id="clockTime">00:00</div>
+    <div id="clockDate"></div>
+  </div>
+
+  <!-- 红绿灯倒计时卡片（路径A：SDK 原生层推送 window.__lightData 驱动；未就绪显示占位） -->
+  <div id="lightCard">
+    <span id="lightDot" class="off"></span>
+    <span id="lightText">红绿灯服务未就绪</span>
+  </div>
+
+  <!-- 右下方歌曲信息（歌名 + 歌手，两行靠右，位于底部频谱条上方；初始隐藏，有歌词数据时显示） -->
+  <div id="songMeta" style="display:none;">
+    <div id="songTitle"></div>
+    <div id="songArtist"></div>
+  </div>
+
+  <!-- 左侧滑出式设置浮窗（场景切换 + 灯光开关 + 频谱开关） -->
+  <div id="drawer">
+    <button id="drawerCloseBtn" title="收起">×</button>
+    <div id="drawerTitle">设置</div>
+    <div id="drawerScroll">
+      <div id="drawerSceneWrap"></div>
+      <button id="drawerTimeSyncBtn" class="skyBtn">随时间同步：开</button>
+      <button id="drawerDefaultViewBtn" class="skyBtn">默认视角：开</button>
+      <button id="drawerCustomViewBtn" class="skyBtn">自定义视角：关</button>
+      <button id="drawerSpectrumBtn" class="skyBtn">频谱：开</button>
+      <button id="drawerLightTrafficBtn" class="skyBtn">红绿灯倒计时：未激活</button>
+      <!-- 微信扫码绑定激活二维码展示区（默认隐藏；点击红绿灯按钮后显示） -->
+      <div id="lightQrBox" style="display:none;">
+        <img id="lightQrImg" alt="微信绑定二维码" />
+        <div id="lightQrStatus">待扫码</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="lightBtn">灯光关</div>
+  <div id="sceneBtns" class="sceneBtns"></div>
+  <div id="lyricPanel">
+    <div id="lyricMeta"></div>
+    <div id="lyricBody"></div>
+    <div id="lyricPlaceholder">暂无歌词</div>
+  </div>
+
+  <script src="three.min.js"></script>
+  <script src="GLTFLoader.js"></script>
+  <script src="OrbitControls.js"></script>
+  <script src="RGBELoader.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      var container = document.getElementById('container');
+      var statusEl = document.getElementById('status');
+      var debugEl = document.getElementById('debug');
+
+      // ---------- 渲染器 / 场景 / 相机（按 gltf-viewer.donmccurdy.com 源码 Viewer.js 复刻） ----------
+      var scene = new THREE.Scene();
+      // B项：移除 scene.background（画布透明，歌词背景层从车模后透出）；环境光由 scene.environment 提供
+
+      var camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.01, 1000); // viewer: new PerspectiveCamera(50, aspect, 0.01, 1000)
+
+      var renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); // B项：alpha 透明画布，歌词位于车模后
+      renderer.setClearColor(0x000000, 0); // B项：完全透明，露出 body 深色背景
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.useLegacyLights = false; // 物理光照模式，对应新版 three 默认；Neutral 环境 PointLight 强度 900 依赖此模式
+      renderer.toneMapping = THREE.ACESFilmicToneMapping; // 场景美化：ACES 柔和高光，防天空/车身高光过曝
+      renderer.toneMappingExposure = 0.95; // ACES 下略压高光，亮度由场景参数补偿（防过曝）
+      if (typeof renderer.outputEncoding !== 'undefined') { renderer.outputEncoding = THREE.sRGBEncoding; } // r148 须显式 sRGB 输出（新版本默认）
+      container.appendChild(renderer.domElement);
+
+      // ---------- 控制器（旋转 + 缩放），限制仰角避免翻到车底 ----------
+      var controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.08;
+      controls.enablePan = false;
+      controls.enableZoom = true;
+      controls.rotateSpeed = 0.8;
+      controls.zoomSpeed = 1.0;
+      controls.minPolarAngle = 0.12;
+      controls.maxPolarAngle = Math.PI * 0.51; // 略低于齐平，但不翻到底盘以下
+
+      // ---------- 补光（viewer 源码 Viewer.js addLights()：AmbientLight + DirectionalLight 挂在相机上，跟随视角） ----------
+      var ambientLight = null;
+      var mainLight = null;
+      function buildLights() {
+        // EXR twilight 唯一场景：暖色调补光（与旧 exr 场景预设一致），HDR IBL 为主要照明
+        ambientLight = new THREE.AmbientLight(0xffd9b8, 0.45);           // 暖白环境补光
+        ambientLight.name = 'ambient_light';
+        camera.add(ambientLight);
+        mainLight = new THREE.DirectionalLight(0xffc08a, 0.8 * Math.PI * 0.42); // 暖橙主光，随相机转动
+        mainLight.position.set(0.5, 0, 0.866);                               // 固定方向，随相机转动
+        mainLight.name = 'main_light';
+        camera.add(mainLight);
+        scene.add(camera);
+      }
+
+      // ---------- 镜面地面 + 车身倒影 ----------
+      // 水面：大平面 y≈0，半透明蓝灰、高金属低粗糙（强环境反射），承载下方车身镜像倒影。
+      // 倒影：model.clone() + scale(1,-1,1) 翻转置于水面下（贴车底无缝隙），主体不透明
+      //       （opacity=1 + depthWrite 遮蔽内部件，不透出翻转内部结构），视觉淡化靠背景色 mix；
+      //       alpha 渐变仅在越过镜像末端阈值（按车高动态计算）后快速淡出消失。
+      var water = null;
+      var reflection = null;
+      var reflColor = new THREE.Color(0x161a1e); // 倒影基础色 = 地面基础色 × 当前场景 reflDark（始终比地面深）
+      var REFL_DARK = 0.02;                      // 备用默认暗化系数（实际按 SKY_SCENES 各场景 reflDark 取值）。倒影为 MeshBasicMaterial（线性空间），显示时经 sRGB gamma 提亮约 2 倍；night 暗地面（gain 0.15）显示色已很低，须把线性色压到接近纯黑（约 0.02×基础色）才能保证 gamma 后仍明显深于地面；twilight 地面亮则用 0.45。
+      var REFL_OPACITY = 1.0;                    // 不透明：镜像主体 alpha=1 防透内（视觉淡化靠背景色 mix）
+      var REFL_BG_MIX = 0.45;                    // 倒影颜色向场景背景色混合比例（视觉变淡、柔和）
+      // 淡出阈值动态计算（buildReflection 按车高）：镜像约 88% 高度内不透明（不透内），末端快速渐隐消失
+      function updateReflectionColor() {
+        if (!reflection) return;
+        reflection.traverse(function (o) {
+          if (o.isMesh && o.material) {
+            var arr = Array.isArray(o.material) ? o.material : [o.material];
+            for (var i = 0; i < arr.length; i++) if (arr[i].color) arr[i].color.copy(reflColor);
+          }
+        });
+      }
+      function createWater() {
+        var geo = new THREE.PlaneGeometry(300, 300);
+        var mat = new THREE.MeshStandardMaterial({
+          color: 0x3a4c60,
+          metalness: 0.92,
+          roughness: 0.12,
+          transparent: true,
+          opacity: 0.62,
+          side: THREE.DoubleSide,
+          depthWrite: false
+        });
+        water = new THREE.Mesh(geo, mat);
+        water.name = 'water_plane';
+        water.rotation.x = -Math.PI / 2;
+        water.position.y = -0.01; // 略低于车底接触面，避免 y=0 共面闪烁
+        water.renderOrder = 1; // 先画水面，倒影后画叠加其上
+        scene.add(water);
+      }
+      function buildReflection() {
+        if (!model) return;
+        // 动态计算车高：镜像主体（车底 0 → 车顶镜像 -carH）需 alpha=1 不透内，
+        // 仅越过镜像末端阈值后才开始淡出消失（观感保留渐隐，但不透内部件）
+        var box = new THREE.Box3().setFromObject(model);
+        var carH = Math.max(box.getSize(new THREE.Vector3()).y, 0.5);
+        var fadeY = -carH * 0.5; // 淡出起点：车底向下约 50% 高度处 alpha=1 开始渐变
+        var fadeK = 1.0 / (0.2 * carH); // 到约 70% 高度处 alpha=0 完全消失（50%→70% 线性过渡）
+        reflection = model.clone();
+        reflection.name = 'reflection';
+        reflection.scale.set(1, -1, 1); // 上下翻转成镜像
+        reflection.position.y = 0.003;  // 贴车底（略高于水面 y=-0.01，防共面闪烁与黑缝）
+        reflection.renderOrder = 2;     // 最后绘制：暗色倒影盖在水面亮反射之上（night 天空反光不再把倒影区域照浅）
+        reflection.traverse(function (o) { if (o.isMesh) o.renderOrder = 2; }); // 子网格同步最后绘制
+        reflection.traverse(function (o) {
+          if (!o.isMesh) return;
+          if (o.name === 'Mesh.010') { o.visible = false; return; } // 侧窗玻璃不显示在倒影
+          var mat = new THREE.MeshBasicMaterial({
+            color: reflColor,
+            transparent: true,
+            opacity: REFL_OPACITY, // 1.0：镜像主体不透明，不透出内部结构
+            depthWrite: true,      // 外表面写深度，遮蔽翻转后的内部件
+            side: THREE.DoubleSide,
+            frustumCulled: false // 翻转后包围盒异常，禁止剔除
+          });
+          // 车身镜像范围内 alpha 恒为 1（不透内）；越过末端阈值后按斜率淡出消失；
+          // 视觉淡化由背景色 mix 完成：颜色按比例混入 reflColor，观感变淡但保持实色覆盖。
+          mat.onBeforeCompile = function (shader) {
+            shader.vertexShader = 'varying float vReflWorldY;\n' + shader.vertexShader;
+            shader.vertexShader = shader.vertexShader.replace(
+              '#include <begin_vertex>',
+              '#include <begin_vertex>\nvReflWorldY = (modelMatrix * vec4(position, 1.0)).y;\n'
+            );
+            shader.fragmentShader = 'uniform float reflFadeY;\nuniform float reflFadeK;\nuniform vec3 reflBg;\nuniform float reflBgMix;\nvarying float vReflWorldY;\n' + shader.fragmentShader;
+            shader.fragmentShader = shader.fragmentShader.replace(
+              '#include <color_fragment>',
+              '#include <color_fragment>\nfloat reflFade = clamp(1.0 + (vReflWorldY - reflFadeY) * reflFadeK, 0.0, 1.0);\ndiffuseColor.a *= reflFade;\ndiffuseColor.rgb = mix(diffuseColor.rgb, reflBg, reflBgMix);\n'
+            );
+            shader.uniforms.reflFadeY = { value: fadeY };
+            shader.uniforms.reflFadeK = { value: fadeK };
+            shader.uniforms.reflBg = { value: reflColor }; // 引用同一 Color：场景切换时随 reflColor 自动同步
+            shader.uniforms.reflBgMix = { value: REFL_BG_MIX };
+          };
+          o.material = mat;
+        });
+        scene.add(reflection);
+      }
+
+      // ---------- 天空球场景列表：daylight / twilight / night（HDR 可切换） ----------
+      // 用 RGBELoader 加载 background/ 下文件（daylight_2k.hdr、dusk_2k.hdr、qwantani_moon_noon_puresky_2k.hdr），
+      // PMREMGenerator.fromEquirectangular 烘焙 IBL 环境；不再把 equirect 纹理设为 scene.background（画布透明）。
+      // 已加载天空球缓存复用，切换不再重复加载；加载失败仅 console.error，应用不崩溃（保持默认背景继续渲染）。
+      // gain：数据层亮度倍率（<1 降亮，1 保持）；daylight 不降亮（1），twilight 降35%（0.65），night 降85%（0.15）。
+      // reflDark：倒影线性暗化系数（倒影色 = 水面基础色 × reflDark，MeshBasicMaterial 线性色 gamma 后提亮约 2 倍）。
+      // twilight 地面偏亮 → 0.45 显示约 50,80,100 深于地面且可辨识；night 地面暗（gain 0.15）→ 0.02 显示约 21,24,26 才能深于地面。
+      var SKY_SCENES = [
+        { key: 'daylight', label: 'daylight', btnLabel: 'daylight', file: 'background/daylight_2k.hdr', shadow: 0x262c33, gain: 1, reflDark: 0.4 }, // daylight：正午明亮场景
+        { key: 'twilight', label: 'twilight', btnLabel: 'twilight', file: 'background/dusk_2k.hdr', shadow: 0x161a1e, gain: 0.65, reflDark: 0.45 }, // twilight：暗化地面
+        { key: 'night',   label: 'night', btnLabel: 'night', file: 'background/qwantani_moon_noon_puresky_2k.hdr', shadow: 0x262c33, gain: 0.15, reflDark: 0.02 } // night：偏亮灰蓝
+      ];
+      // 场景4（night2）：源 HDR 基底亮度均值≈0.0036（约为其他场景的 1/90~1/300），默认 ACES 输出近纯黑。
+      // 在数据层把 HDR 亮度乘 NIGHT2_GAIN（toneMappingExposure 与其他场景保持一致 0.95），
+      // 让背景呈“暗夜可见天空/地面”观感；数值可调，越大越亮。
+      var NIGHT2_GAIN = 3;
+      var carLightApply = null; // 模型加载完成后挂载车灯开关（场景4 自动开灯用）
+
+      // HalfFloat 数据增益：构建 65536 项 LUT，对 HDR 像素整体乘 gain（背景/IBL 一起生效）
+      function toHalfBits(v) {
+        if (v === 0) return 0;
+        if (isNaN(v)) return 0x7e00;
+        if (!isFinite(v)) return v > 0 ? 0x7c00 : 0xfc00;
+        var s = v < 0 ? 0x8000 : 0;
+        v = Math.abs(v);
+        if (v >= 65504) return s | 0x7bff;
+        var e = Math.floor(Math.log(v) / Math.LN2);
+        var m = v / Math.pow(2, e);
+        if (m < 1) { e--; m *= 2; }
+        var eb = e + 15;
+        if (eb <= 0) {
+          var sub = Math.round(v / Math.pow(2, -24));
+          return s | Math.min(sub, 0x3ff);
+        }
+        var mb = Math.round((m - 1) * 1024);
+        if (mb >= 1024) { mb = 0; eb++; }
+        if (eb >= 31) return s | 0x7bff;
+        return s | (eb << 10) | mb;
+      }
+      function fromHalfBits(h) {
+        var sign = (h & 0x8000) ? -1 : 1;
+        var exp = (h >> 10) & 0x1f;
+        var mant = h & 0x3ff;
+        if (exp === 0) return mant * Math.pow(2, -24) * sign;
+        if (exp === 31) return (mant === 0) ? (sign < 0 ? -Infinity : Infinity) : NaN;
+        return (1 + mant / 1024) * Math.pow(2, exp - 15) * sign;
+      }
+      function buildHalfScaleLUT(gain) {
+        // 场景4 太阳压缩：源 HDR 中太阳/强光像素亮度峰值≈848（天空均值仅 0.0036，相差 20 万倍），
+        // 增益后过曝成刺眼白斑。对亮度 > SUN_T 的像素做双曲线压缩——连续、单调、输出上限
+        // ≈ SUN_T*gain + SUN_CAP（≈8），把太阳压成可见的亮斑但不再过曝，其余天空/地面照常乘 gain。
+        var SUN_T = 0.05;   // 原始亮度阈值（半精度解码值，仅命中太阳/强光源核心）
+        var SUN_CAP = 1.85; // 超过阈值部分的可压缩余量，输出上限≈0.15+1.85≈2（用户指定太阳亮度=2）
+        var lut = new Uint16Array(65536);
+        for (var h = 0; h < 65536; h++) {
+          var sign = (h & 0x8000) ? -1 : 1;
+          var exp = (h >> 10) & 0x1f;
+          var mant = h & 0x3ff;
+          var v;
+          if (exp === 0) { v = mant * Math.pow(2, -24) * sign; }
+          else if (exp === 31) { v = (mant === 0) ? (sign < 0 ? -Infinity : Infinity) : NaN; }
+          else { v = (1 + mant / 1024) * Math.pow(2, exp - 15) * sign; }
+          var out;
+          if (v > SUN_T) {
+            var base = SUN_T * gain;
+            var over = v * gain - base;
+            out = base + over * SUN_CAP / (over + SUN_CAP);
+          } else {
+            out = v * gain;
+          }
+          lut[h] = toHalfBits(out);
+        }
+        return lut;
+      }
+      function buildGainLUT(gain) {
+        // 通用数据层亮度倍率 LUT：对 HalfFloat 像素整体乘 gain（不含太阳压缩），
+        // 用于 twilight/night 等普通场景按用户指定百分比降亮（0.8=降20%、0.25=降75%）。
+        var lut = new Uint16Array(65536);
+        for (var h = 0; h < 65536; h++) {
+          lut[h] = toHalfBits(fromHalfBits(h) * gain);
+        }
+        return lut;
+      }
+      var skyCache = {};      // key -> { bg, env }
+      var skyLoading = {};    // key -> true（加载中防重入）
+      var currentSkyKey = 'daylight';
+
+      function getSkyCfg(key) {
+        for (var i = 0; i < SKY_SCENES.length; i++) if (SKY_SCENES[i].key === key) return SKY_SCENES[i];
+        return SKY_SCENES[0];
+      }
+
+      function applyEXRScene(key) {
+        var c = skyCache[key];
+        if (!c) return;
+        // v4：恢复天空球背景——equirect 纹理设为 scene.background（可见天空全景），环境光同时保留。
+        if (c.bg) scene.background = c.bg;
+        if (c.env) scene.environment = c.env;
+        // 同步倒影色到当前场景地面色（倒影随场景背景暗化融合）
+        var cfg = getSkyCfg(key);
+        if (key === 'night2') {
+          // 夜间暗调：曝光与其他场景一致（全局 0.95），亮度提升由 loadEXRScene 数据层 NIGHT2_GAIN 完成；
+          // 此处压低水面反射与倒影色更自然
+          if (water) {
+            water.material.envMapIntensity = 0.01;
+            water.material.color.set(0x1a242c);
+          }
+          reflColor.set(0x151b21);
+          updateReflectionColor();
+          if (carLightApply) carLightApply(true); // 切到场景4 自动打开车灯（含倒影车灯同步）
+        } else {
+          if (water) {
+            water.material.envMapIntensity = 1.0;
+            water.material.color.set(0x3a4c60);
+            // 倒影色 = 地面基础色 × 当前场景 reflDark（每场景独立暗度：twilight 0.45 深一档可辨识，night 0.02 深于暗地面）。
+            // 倒影为 MeshBasicMaterial 线性色，gamma 显示后提亮约 2 倍，系数按显示目标标定。
+            reflColor.copy(water.material.color).multiplyScalar(cfg.reflDark !== undefined ? cfg.reflDark : REFL_DARK);
+            updateReflectionColor();
+          }
+          if (key === 'night' && carLightApply) carLightApply(true); // 切到场景2（night）自动打开车灯（含倒影车灯同步）
+        }
+        updateSkyButtons();
+        statusEl.textContent = '天空球：' + cfg.label;
+      }
+
+      function loadEXRScene(key) {
+        if (skyLoading[key] || skyCache[key]) return;
+        skyLoading[key] = true;
+        var cfg = getSkyCfg(key);
+        statusEl.textContent = '正在加载天空球：' + cfg.label + '…';
+        var rgbe = new THREE.RGBELoader();
+        rgbe.setDataType(THREE.HalfFloatType);
+        // WebView 的 file:// 协议禁止 fetch，但允许 XHR 加载本地资源（GLB 即走 XHR）。
+        // 手动 XHR 读 ArrayBuffer，再用 RGBELoader.parse() 解析，绕开 RGBELoader 内部的 fetch。
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', cfg.file, true);
+        xhr.responseType = 'arraybuffer';
+        xhr.onload = function () {
+          if (xhr.status !== 0 && xhr.status !== 200) {
+            console.error('EXR 加载失败: HTTP ' + xhr.status + ' file=' + cfg.file);
+            skyLoading[key] = false;
+            statusEl.textContent = '天空球加载失败：' + cfg.label;
+            return;
+          }
+          try {
+            console.log('EXR_XHR key=' + key + ' file=' + cfg.file + ' status=' + xhr.status + ' len=' + (xhr.response ? (xhr.response.byteLength || xhr.response.length) : 'null'));
+            var texData = rgbe.parse(xhr.response);
+            if (key === 'night2' && texData && texData.data) {
+              // 场景4 基底亮度极低：数据层乘 NIGHT2_GAIN（exposure 保持全局 0.95，与其他场景一致）
+              var d = texData.data;
+              if (d.BYTES_PER_ELEMENT === 2) {
+                var lut = buildHalfScaleLUT(NIGHT2_GAIN);
+                for (var gi = 0; gi < d.length; gi++) d[gi] = lut[d[gi]];
+                // 地平线雾化渐变：背景纹理不受 scene.fog 影响，故在像素层处理。
+                // 仅在地平线（天空-地面交界，HDR y≈935/2048，x≈2054 为太阳）附近一条窄带内
+                // 混入灰蓝雾色，让交界变成柔和渐变带；雾带外天空/地面不雾化。
+                // 雾带采用"平台+双渐变"：地平线中心 ±8% 行（覆盖整条晨光亮带）雾化强度 100%，
+                // 把暖色亮带完全替换成天空色，消除色相分界；平台外天空侧向上、地面侧向下
+                // 用 smoothstep 渐隐——天空侧 10%、地面侧 26%，远景地面由原色平滑并入
+                // 天空色系，近处地面保留本色；太阳采用 core/soft 两级平滑衰减：
+                // 核心（60px，太阳本体亮核约 30px）几乎不雾化保留亮斑，向外平滑过渡到全雾化，
+                // 无硬半径，不会在雾化背景上留下圆形亮洞/暗圈。
+                var gh2 = texData.height, gw2 = texData.width;
+                var fogY = Math.round(gh2 * (1 - 0.544));
+                var fogFlatHalf = Math.round(gh2 * 0.08); // 中心平台半宽（覆盖晨光亮带）
+                var fogBandTop = Math.round(gh2 * 0.10);  // 平台外天空侧渐隐宽度
+                var fogBandBot = Math.round(gh2 * 0.26);  // 平台外地面侧渐隐宽度
+                var fogR = 0.045, fogG = 0.058, fogB = 0.075; // 雾色=天空乘增益后的实际颜色
+                var sunX = 2054, sunY = Math.round(gh2 * (1 - 0.544)), sunCore = 60, sunSoft = 480;
+                var fogY0 = Math.max(0, fogY - fogFlatHalf - fogBandTop);
+                var fogY1 = Math.min(gh2 - 1, fogY + fogFlatHalf + fogBandBot);
+                var sunSoft2 = sunSoft * sunSoft;
+                for (var fy = fogY0; fy <= fogY1; fy++) {
+                  var dy = fy - fogY;
+                  var ft;
+                  if (dy <= -fogFlatHalf) {
+                    var t = 1 - (fogY - fogFlatHalf - fy) / fogBandTop; // 平台外天空侧 0→1
+                    t = t <= 0 ? 0 : (t >= 1 ? 1 : t);
+                    ft = t * t * (3 - 2 * t);
+                  } else if (dy >= fogFlatHalf) {
+                    var t2 = 1 - (fy - (fogY + fogFlatHalf)) / fogBandBot; // 平台外地面侧 1→0
+                    t2 = t2 <= 0 ? 0 : (t2 >= 1 ? 1 : t2);
+                    ft = t2 * t2 * (3 - 2 * t2);
+                  } else {
+                    ft = 1; // 中心平台：完全雾化，亮带替换为天空色
+                  }
+                  var rowBase = fy * gw2 * 4;
+                  for (var fx = 0; fx < gw2; fx++) {
+                    var idx = rowBase + fx * 4;
+                    var ftEff = ft;
+                    var ddx = fx - sunX, ddy = fy - sunY;
+                    var d2 = ddx * ddx + ddy * ddy;
+                    if (d2 < sunSoft2) {
+                      var dist = Math.sqrt(d2);
+                      var st = (dist - sunCore) / (sunSoft - sunCore);
+                      st = st <= 0 ? 0 : (st >= 1 ? 1 : st);
+                      ftEff = ft * (0.05 + 0.95 * st * st * (3 - 2 * st)); // 核心保留 → 平滑过渡到全雾化
+                    }
+                    var rr = fromHalfBits(d[idx]);
+                    var rg = fromHalfBits(d[idx + 1]);
+                    var rb = fromHalfBits(d[idx + 2]);
+                    d[idx] = toHalfBits(rr + (fogR - rr) * ftEff);
+                    d[idx + 1] = toHalfBits(rg + (fogG - rg) * ftEff);
+                    d[idx + 2] = toHalfBits(rb + (fogB - rb) * ftEff);
+                  }
+                }
+                console.log('EXR_NIGHT2_FOG y=' + fogY + ' flat=' + fogFlatHalf + ' top=' + fogBandTop + ' bot=' + fogBandBot + ' sunCore=' + sunCore + ' sunSoft=' + sunSoft);
+              } else {
+                for (var fj = 0; fj < d.length; fj++) d[fj] *= NIGHT2_GAIN;
+              }
+              console.log('EXR_NIGHT2_GAIN key=' + key + ' gain=' + NIGHT2_GAIN);
+            }
+            if (key !== 'night2' && cfg.gain !== undefined && texData && texData.data && texData.data.BYTES_PER_ELEMENT === 2) {
+              // twilight/night 数据层降亮：乘 cfg.gain（twilight=0.8 降20%、night=0.25 降75%），背景/IBL 一起生效
+              var gl = texData.data;
+              var glut = buildGainLUT(cfg.gain);
+              for (var gk = 0; gk < gl.length; gk++) gl[gk] = glut[gl[gk]];
+              console.log('EXR_GAIN key=' + key + ' gain=' + cfg.gain);
+            }
+            console.log('EXR_PARSE_RET key=' + key + ' w=' + (texData && texData.width) + ' h=' + (texData && texData.height) + ' dataLen=' + (texData && texData.data ? texData.data.length : 'n/a'));
+            // parse 返回的是裸对象（无 image），PMREMGenerator.fromEquirectangular 依赖 texture.image 结构，
+            // 必须手动包装为 THREE.DataTexture（image = { data, width, height }）
+            var tex = new THREE.DataTexture(texData.data, texData.width, texData.height);
+            tex.type = THREE.HalfFloatType;
+            tex.encoding = THREE.LinearEncoding;
+            tex.minFilter = THREE.LinearFilter;
+            tex.magFilter = THREE.LinearFilter;
+            tex.generateMipmaps = false;
+            tex.flipY = true;
+            tex.mapping = THREE.EquirectangularReflectionMapping;
+            tex.needsUpdate = true;
+            console.log('EXR_DATATEX key=' + key + ' imgW=' + (tex.image && (tex.image.width !== undefined ? tex.image.width : (tex.image[0] && tex.image[0].width))));
+            var envTex = null;
+            // PMREM 环境光独立隔离：失败不影响背景天空球
+            try {
+              var pmrem = new THREE.PMREMGenerator(renderer);
+              console.log('EXR_PMREM_CREATED key=' + key);
+              envTex = pmrem.fromEquirectangular(tex).texture;
+              console.log('EXR_PMREM_BAKED key=' + key + ' texType=' + envTex.type);
+              pmrem.dispose();
+            } catch (e2) {
+              console.error('EXR_PMREM_FAIL key=' + key + ':', e2, 'stack=', (e2 && e2.stack) || 'nostack');
+            }
+            skyCache[key] = { bg: tex, env: envTex };
+            skyLoading[key] = false;
+            if (key === currentSkyKey) {
+              applyEXRScene(key); // 仅当该场景仍是当前选中场景时才应用
+            } else {
+              updateSkyButtons();
+            }
+          } catch (e) {
+            console.error('EXR_PARSE_FAIL key=' + key + ':', e, 'stack=', (e && e.stack) || 'nostack', 'respLen=', xhr.response ? xhr.response.byteLength : 'null');
+            skyLoading[key] = false;
+            statusEl.textContent = '天空球解析失败：' + cfg.label;
+          }
+        };
+        xhr.onerror = function () {
+          console.error('EXR XHR 加载失败 key=' + key, 'readyState=' + xhr.readyState, 'status=' + xhr.status, 'respType=' + xhr.responseType);
+          skyLoading[key] = false;
+          statusEl.textContent = '天空球加载失败：' + cfg.label;
+        };
+        xhr.send();
+      }
+
+      // ---------- 场景切换按钮（daylight/twilight/night）——渲染到左侧浮窗 #drawerSceneWrap ----------
+      var sceneBtnsEl = document.getElementById('drawerSceneWrap');
+      var skyBtns = {};
+      function buildSkyButtons() {
+        if (!sceneBtnsEl) return;
+        sceneBtnsEl.innerHTML = '';
+        for (var i = 0; i < SKY_SCENES.length; i++) {
+          (function (cfg) {
+            var b = document.createElement('button');
+            b.className = 'skyBtn';
+            b.type = 'button';
+            b.dataset.key = cfg.key;
+            b.textContent = cfg.btnLabel || cfg.label;
+            b.addEventListener('click', function (ev) {
+              if (ev && ev.preventDefault) ev.preventDefault();
+              resetTimer(); showBtns(); // 点击按钮所在位置：重置计时并恢复显示
+              timeSyncOn = false; updateTimeSyncBtn(); // 手动切换场景时自动关闭随时间同步
+              switchSky(cfg.key); // 按钮点击不干扰相机操作
+            });
+            sceneBtnsEl.appendChild(b);
+            skyBtns[cfg.key] = b;
+          })(SKY_SCENES[i]);
+        }
+      }
+      function switchSky(key) {
+        if (key === currentSkyKey && skyCache[key]) { updateSkyButtons(); return; }
+        currentSkyKey = key;
+        if (skyCache[key]) {
+          applyEXRScene(key);
+        } else {
+          updateSkyButtons();
+          loadEXRScene(key);
+        }
+      }
+      function updateSkyButtons() {
+        for (var k in skyBtns) {
+          skyBtns[k].classList.toggle('active', k === currentSkyKey);
+        }
+      }
+      buildSkyButtons();
+
+      // ---------- 随时间同步：按系统时间自动切换场景（默认开启） ----------
+      // 时间段：8:30-16:29 → daylight；16:30-18:29 / 5:30-8:29 → twilight；18:30-次日5:29 → night。
+      // 手动切换场景会自动关闭本开关；再次打开立即按当前时间同步一次。
+      var timeSyncOn = true; // 随时间同步开关（默认开启，软件启动即生效）
+      var timeSyncTimer = null;
+      function syncSceneByTime() {
+        if (!timeSyncOn) return;
+        var d = new Date();
+        var t = d.getHours() * 60 + d.getMinutes();
+        var k;
+        if (t >= 330 && t < 510) k = 'twilight';        // 5:30-8:29
+        else if (t >= 510 && t < 990) k = 'daylight';   // 8:30-16:29
+        else if (t >= 990 && t < 1110) k = 'twilight';  // 16:30-18:29
+        else k = 'night';                               // 18:30-次日5:29
+        if (k && k !== currentSkyKey) switchSky(k);
+      }
+      function updateTimeSyncBtn() {
+        var b = document.getElementById('drawerTimeSyncBtn');
+        if (!b) return;
+        b.textContent = timeSyncOn ? '随时间同步：开' : '随时间同步：关';
+        b.classList.toggle('on', timeSyncOn);
+      }
+      (function initTimeSync() {
+        var b = document.getElementById('drawerTimeSyncBtn');
+        if (b) {
+          b.addEventListener('click', function (ev) {
+            if (ev && ev.preventDefault) ev.preventDefault();
+            resetTimer(); showBtns();
+            timeSyncOn = !timeSyncOn; // 开关翻转
+            updateTimeSyncBtn();
+            if (timeSyncOn) syncSceneByTime(); // 重新打开立即按当前时间同步
+          });
+        }
+        updateTimeSyncBtn();
+        timeSyncTimer = setInterval(syncSceneByTime, 60 * 1000); // 每分钟检查一次
+        syncSceneByTime(); // 启动时立即按当前时间同步
+      })();
+
+      // ---------- 自定义归位视角（默认视角 / 自定义视角 互斥开关） ----------
+      var useCustomHome = false;           // true=归位到自定义视角；false=归位到代码默认视角
+      var customHomePos = new THREE.Vector3();     // 自定义归位：相机位置
+      var customHomeTarget = new THREE.Vector3();  // 自定义归位：观察目标
+      var customHomeSet = false;           // 是否已记录过自定义视角
+      function updateViewModeBtns() {
+        var db = document.getElementById('drawerDefaultViewBtn');
+        var cb = document.getElementById('drawerCustomViewBtn');
+        if (db) { db.textContent = useCustomHome ? '默认视角：关' : '默认视角：开'; db.classList.toggle('on', !useCustomHome); }
+        if (cb) { cb.textContent = useCustomHome ? '自定义视角：开' : '自定义视角：关'; cb.classList.toggle('on', useCustomHome); }
+      }
+      (function initViewMode() {
+        var db = document.getElementById('drawerDefaultViewBtn');
+        var cb = document.getElementById('drawerCustomViewBtn');
+        if (db) {
+          db.addEventListener('click', function (ev) {
+            if (ev && ev.preventDefault) ev.preventDefault();
+            resetTimer(); showBtns();
+            useCustomHome = false;
+            if (model) computeHomePose(); // 重算代码默认归位目标
+            beginTween(); // 立即归位到默认视角
+            updateViewModeBtns();
+          });
+        }
+        if (cb) {
+          cb.addEventListener('click', function (ev) {
+            if (ev && ev.preventDefault) ev.preventDefault();
+            resetTimer(); showBtns();
+            if (!useCustomHome) {
+              // 开启：记录当前视角作为归位视角
+              customHomePos.copy(camera.position);
+              customHomeTarget.copy(controls.target);
+              customHomeSet = true;
+              useCustomHome = true;
+            } else {
+              // 关闭：切回代码默认归位目标
+              useCustomHome = false;
+              if (model) computeHomePose();
+            }
+            beginTween(); // 立即归位到生效目标（自定义或默认）
+            updateViewModeBtns();
+          });
+        }
+        updateViewModeBtns();
+      })();
+      // ---------- 模型状态 ----------
+      var model = null;
+      var center = new THREE.Vector3(0, 0, 0);
+      var radius = 1;
+      var homePos = new THREE.Vector3(4, 2, 4);
+      var homeTarget = new THREE.Vector3(0, 0, 0);
+
+      // ---------- 归位相机自适应屏幕 ----------
+      // 归位方向固定为模型前方偏右 45°（车头右前 45°），距离按可见 mesh 包围盒在相机坐标系的
+      // 投影计算：水平目标占屏 HOME_TARGET_H=0.78（车更近、占屏更大，修复"归位太远"），竖直不溢出（留 5% 边距），取两者更远者。
+      // 只统计可见 mesh（跳过隐藏 mesh / 环境物体），避免包围盒虚大导致实测占屏偏小（修复原 ~40% 问题）。
+      // 窗口尺寸变化时 onResize 重算；仅更新归位目标，不打扰当前自由视角/归位缓动。
+      var homeFrac = 0; // 归位后模型水平占屏比例（调试）
+      var HOME_TARGET_H = 0.92; // 水平占屏目标系数（车更近、占屏更大）
+      function getVisibleBounds(obj) {
+        var box = new THREE.Box3();
+        var tmp = new THREE.Box3();
+        obj.traverse(function (o) {
+          if (o.isMesh && o.visible) {
+            tmp.setFromObject(o);
+            box.union(tmp);
+          }
+        });
+        return box;
+      }
+      var lastPortrait = null; // 上次宽高比状态（竖屏/横屏），用于实时检测切换
+      function computeHomePose() {
+        if (!model) return;
+        var box = getVisibleBounds(model);
+        if (box.isEmpty()) return;
+        var c = box.getCenter(new THREE.Vector3());
+        var sz = box.getSize(new THREE.Vector3());
+
+        // 双比例默认归位方案：
+        // - 横屏 / 1:1（innerWidth >= innerHeight）：沿用现有方案，车头右前 45°，水平占屏目标 HOME_TARGET_H=0.78；
+        // - 竖屏（innerHeight > innerWidth）：车头正前方（+z）视角，水平占屏目标 1.8，
+        //   车身左右几乎贴近屏幕两侧边界（仅留约 2% 边距）。
+        var isPortrait = window.innerHeight > window.innerWidth;
+        var homeTargetH = isPortrait ? 1.8 : HOME_TARGET_H;
+
+        var fwd = new THREE.Vector3(0, 0, -1);
+        var up = new THREE.Vector3(0, 1, 0);
+        var right = new THREE.Vector3().crossVectors(fwd, up).normalize();
+        var left = right.clone().negate();
+        var dirVec;
+        if (isPortrait) {
+          dirVec = new THREE.Vector3(0, 0, 1); // 车头朝向 +z：正前方视角
+        } else {
+          dirVec = fwd.clone().multiplyScalar(-0.7).add(right.clone().multiplyScalar(0.7)).normalize(); // 归位方向：车头右前 45°（车头朝向 +z）
+        }
+        lastPortrait = isPortrait;
+
+        // 相机坐标基：相机看向 center，前方 = -dirVec
+        var viewDir = dirVec.clone().negate();
+        var camRight = new THREE.Vector3().crossVectors(viewDir, up).normalize();
+        var camUp = new THREE.Vector3().crossVectors(camRight, viewDir).normalize();
+
+        // 可见包围盒 8 顶点在相机坐标系的投影半宽 / 半高（取最大绝对值，保守）
+        var half = sz.clone().multiplyScalar(0.5);
+        var xHalf = 0, yHalf = 0;
+        for (var ix = -1; ix <= 1; ix += 2) {
+          for (var iy = -1; iy <= 1; iy += 2) {
+            for (var iz = -1; iz <= 1; iz += 2) {
+              var p = new THREE.Vector3(c.x + ix * half.x, c.y + iy * half.y, c.z + iz * half.z).sub(c);
+              var px = Math.abs(p.dot(camRight));
+              var py = Math.abs(p.dot(camUp));
+              if (px > xHalf) xHalf = px;
+              if (py > yHalf) yHalf = py;
+            }
+          }
+        }
+
+        var tanV = Math.tan(camera.fov * Math.PI / 180 / 2); // 竖直半角
+        var tanH = tanV * (window.innerWidth / window.innerHeight); // 水平半角（由 aspect 决定）
+        var dV = yHalf / (tanV * 0.94);  // 竖直约束：不溢出，留 6% 边距
+        var dH = xHalf / (homeTargetH * tanH); // 水平约束：横屏/1:1 占屏 0.78；竖屏占屏 1.8（车身贴左右边界）
+        var d;
+        if (isPortrait) {
+          d = dH; // 竖屏贴边：水平目标主导，允许上下方向少量溢出（由相机裁切）
+        } else {
+          d = Math.max(dV, dH); // 横屏：竖直不溢出优先，水平尽量贴近目标
+        }
+
+        homePos.copy(c).add(dirVec.clone().multiplyScalar(d));
+        homePos.y = c.y + 0.06;
+        homeTarget.copy(c);
+        homeTarget.y = c.y;
+        homeFrac = xHalf / (d * tanH); // 记录实际水平占屏比例（调试）
+      }
+
+      // ---------- 模型加载（GLTFLoader 原生加载，加载后不做任何材质 / 属性手动修改） ----------
+      var loader = new GLTFLoader();
+      loader.load('model/XPP7_Model_v4.glb', function (gltf) {
+        model = gltf.scene;
+        scene.add(model);
+
+        // 车底贴地：仅调整模型摆放位置，不触碰任何材质属性
+        // 只统计可见 mesh（复用 getVisibleBounds），避免隐藏部件把包围盒底拉低导致轮胎悬空
+        var preBox = getVisibleBounds(model);
+        model.position.y = -preBox.min.y;
+        buildReflection(); // 车底镜面倒影（翻转镜像 + 渐变淡出，贴车底无缝隙）
+
+        var box = new THREE.Box3().setFromObject(model);
+        center = box.getCenter(new THREE.Vector3());
+        var size = box.getSize(new THREE.Vector3());
+        radius = Math.max(size.length() / 2, 0.5);
+
+        controls.minDistance = radius * 0.35;
+        controls.maxDistance = radius * 6.5;
+
+        // 相机初始位置：按包围盒与屏幕尺寸自适应（水平占屏 3/5、竖直不溢出）
+        computeHomePose();
+
+        camera.position.copy(homePos);
+        controls.target.copy(homeTarget);
+        controls.update();
+
+        statusEl.textContent = 'P7 SHOW · 2020 XPeng P7 已加载 · 拖动旋转 / 双指缩放';
+        if (debugEl) {
+          var nMat = 0, tMat = 0, mMat = 0;
+          gltf.scene.traverse(function (o) {
+            if (o.isMesh && o.material) {
+              var arr = Array.isArray(o.material) ? o.material : [o.material];
+              nMat += arr.length;
+              for (var i = 0; i < arr.length; i++) {
+                if (arr[i].isMeshPhysicalMaterial && arr[i].transmission > 0) tMat++;
+                if (arr[i].isMeshStandardMaterial) mMat++;
+              }
+            }
+          });
+          var envInfo = scene.environment ? (scene.environment.image.width + 'x' + scene.environment.image.height) : 'null';
+          debugEl.textContent = 'env=' + envInfo + ' mats=' + nMat + ' std=' + mMat + ' trans=' + tMat + ' homeFrac=' + homeFrac.toFixed(2);
+        }
+
+        // ---------- 灯光开关：双 mesh visible 切换 ----------
+        // Mesh.008（Obj3d66-19967172-10-383）绑定 light_off=关灯态；Mesh.061（Obj3d66-19967172-10-383.001）绑定 light_on=开灯态。
+        // 定位按材质名（light_off / light_on）匹配，不依赖节点/网格命名；切换只改 visible，避免旧渲染器材质 uniform 失效问题。
+        var lightMesh = null, lightOnMesh = null;
+        gltf.scene.traverse(function (o) {
+          if (!o.isMesh) return;
+          var mm = Array.isArray(o.material) ? o.material[0] : o.material;
+          if (!mm || !mm.name) return;
+          if (mm.name === 'light_off') lightMesh = o;
+          if (mm.name === 'light_on') lightOnMesh = o;
+        });
+        if (lightMesh && lightOnMesh) {
+          var lightOn = false;
+          function applyLight(on) {
+            lightOn = on;
+            lightMesh.visible = !on;
+            lightOnMesh.visible = on;
+            // 倒影同步：reflection 由 model.clone() 而来，含同名 light_off/light_on 网格，
+            // 不同步会导致主车亮灯而倒影车灯不亮（观感不自然）。
+            if (reflection) {
+              reflection.traverse(function (o) {
+                if (!o.isMesh) return;
+                var mm = Array.isArray(o.material) ? o.material[0] : o.material;
+                if (!mm || !mm.name) return;
+                if (mm.name === 'light_off') o.visible = !on;
+                if (mm.name === 'light_on') o.visible = on;
+              });
+            }
+          }
+          function toggleLight() {
+            applyLight(!lightOn);
+          }
+          // 双击车模本体开关灯：两次 click 间隔 <300ms 且第二次命中车模本体即切换。
+          // Raycaster 只对 model 子树内可见网格求交；倒影 reflection / 水面 water 均为
+          // scene 级独立节点（不在 model 内），天然被排除。
+          var raycaster = new THREE.Raycaster();
+          var lastTapTime = 0;
+          function hitCar(clientX, clientY) {
+            if (!model) return false;
+            var rect = renderer.domElement.getBoundingClientRect();
+            var nx = ((clientX - rect.left) / rect.width) * 2 - 1;
+            var ny = -((clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(new THREE.Vector2(nx, ny), camera);
+            var meshes = [];
+            model.traverse(function (o) { if (o.isMesh && o.visible) meshes.push(o); });
+            var hits = raycaster.intersectObjects(meshes, false);
+            return hits.length > 0;
+          }
+          renderer.domElement.addEventListener('click', function (ev) {
+            var now = performance.now();
+            if (now - lastTapTime < 300 && hitCar(ev.clientX, ev.clientY)) {
+              lastTapTime = 0;
+              toggleLight();
+              return;
+            }
+            lastTapTime = now;
+          });
+          applyLight(false);
+          carLightApply = applyLight; // 暴露给场景切换（场景4 自动开灯）
+          if (debugEl) debugEl.textContent += ' | light=OK';
+        } else {
+          if (debugEl) debugEl.textContent += ' | light=MISS';
+        }
+
+        resetTimer();
+      setLyricSpritePose();
+      }, undefined, function (err) {
+        statusEl.textContent = '模型加载失败：' + (err && err.message ? err.message : '未知错误');
+      });
+
+      // ---------- 无操作自动隐藏提示 / 5 秒自动归位 ----------
+      var lightBtnEl = document.getElementById('lightBtn');
+      var IDLE_MS = 5000;
+      var UI_HIDE_MS = 1500;
+      var BTN_HIDE_MS = 5000; // 灯光/场景按钮：5 秒无操作自动消失（opacity 0 + pointer-events none，保留布局）
+      var uiVisible = true;
+      var btnsVisible = true;
+      var lastActivity = Date.now();
+      var isTweening = false;
+
+      function showUI() {
+        if (uiVisible) return;
+        uiVisible = true;
+      }
+      function hideUI() {
+        if (!uiVisible) return;
+        uiVisible = false;
+      }
+      function showBtns() {
+        if (btnsVisible) return;
+        btnsVisible = true;
+        // 恢复可见：只改 opacity；pointer-events 始终 auto（隐藏后仍保留可点击热区）
+        if (lightBtnEl) lightBtnEl.style.opacity = '1';
+      }
+      function hideBtns() {
+        if (!btnsVisible) return;
+        btnsVisible = false;
+        // 隐藏只降 opacity，不设 pointer-events:none——按钮热区始终可点，
+        // 点击按钮所在位置才恢复显示；点击其他屏幕区域仅重置计时。
+        if (lightBtnEl) lightBtnEl.style.opacity = '0';
+      }
+      // 任意用户活动：仅重置计时（并短暂显示提示），不恢复按钮——只有点击按钮所在位置才恢复显示
+      function resetTimer() { lastActivity = Date.now(); showUI(); }
+      function beginTween() { isTweening = true; controls.enabled = false; }
+
+      // ---------- 左侧滑出式设置浮窗（drawer）----------
+      // 布局：33vw 宽、左侧滑入；交互：浮窗本体跟手拖回 + 关闭按钮，展开/收起由时钟点击（setDrawerOpen）触发；
+      // 松手按位移阈值（>1/3 浮窗宽）决定展开/收起。左滑弹出已取消（时钟替代）。
+      var drawerEl = document.getElementById('drawer');
+      var drawerScrollEl = document.getElementById('drawerScroll');
+      // 抽屉滚动容器：内容可溢出时返回容器元素，供拖拽逻辑判断触摸点是否在滚动区内
+      function drawerScrollOverflow() { return (drawerScrollEl && drawerScrollEl.scrollHeight > drawerScrollEl.clientHeight + 1) ? drawerScrollEl : null; }
+      function touchInDrawerScroll(e) {
+        var sc = drawerScrollOverflow();
+        if (!sc) return false;
+        var tgt = e.target;
+        return tgt && sc.contains(tgt);
+      }
+      var drawerCloseBtn = document.getElementById('drawerCloseBtn');
+      var DRAWER_W_PX = window.innerWidth * 0.33; // 33vw
+      var drawerRatio = 0;            // 当前展开比例 0..1（拖动跟手 / 动画进度）
+      var drawerDrag = null;          // {startX, baseShift} 拖动状态
+      var drawerAnim = null;          // {from, to, t0, dur} 收起/展开动画
+      var drawerOpen = false;         // 当前是否处于展开态
+
+      function applyDrawerTransform() {
+        if (!drawerEl) return;
+        var shift = DRAWER_W_PX * drawerRatio;
+        drawerEl.style.transform = 'translateX(' + (shift - DRAWER_W_PX) + 'px)';
+        drawerEl.style.pointerEvents = (drawerRatio > 0.02) ? 'auto' : 'none'; // 收起后不拦截左侧 3D 操作
+      }
+      function startDrawerDrag(clientX, clientY) {
+        if (drawerDrag) return;
+        drawerAnim = null;
+        drawerEl.style.transition = 'none';
+        drawerDrag = { startX: clientX, startY: clientY || 0, baseShift: DRAWER_W_PX * drawerRatio };
+        applyDrawerTransform();
+      }
+      function moveDrawerDrag(clientX) {
+        if (!drawerDrag) return;
+        var shift = drawerDrag.baseShift + (clientX - drawerDrag.startX);
+        shift = shift < 0 ? 0 : (shift > DRAWER_W_PX ? DRAWER_W_PX : shift);
+        drawerRatio = shift / DRAWER_W_PX;
+        applyDrawerTransform();
+      }
+      function endDrawerDrag(clientX) {
+        if (!drawerDrag) return;
+        var moved = Math.abs(clientX - drawerDrag.startX);
+        moveDrawerDrag(clientX);
+        drawerDrag = null;
+        if (moved < 6) { applyDrawerTransform(); return; } // 位移过小视为点击（如浮窗内按钮），保持当前状态
+        animateDrawerTo(drawerRatio > 1 / 3); // 超过 1/3 浮窗宽则展开，否则收起
+      }
+      function animateDrawerTo(open) {
+        drawerOpen = open;
+        drawerEl.style.transition = 'none'; // 动画由 JS rAF 驱动（需逐帧联动 3D）
+        drawerAnim = { from: drawerRatio, to: open ? 1 : 0, t0: performance.now(), dur: 260 };
+      }
+
+      // 拖拽事件：左滑弹出已取消（时钟点击替代），仅展开态浮窗本体单指/鼠标拖回
+      window.addEventListener('touchstart', function (e) {
+        if (touchInDrawerScroll(e)) return; // 滚动区内的触摸不进入抽屉拖拽，保留原生滚动
+        if (drawerRatio > 0.02 && drawerEl && e.target && drawerEl.contains(e.target)) {
+          var t = e.touches ? e.touches[0] : e;
+          startDrawerDrag(t.clientX, t.clientY);
+        }
+      }, { passive: true });
+      window.addEventListener('touchmove', function (e) {
+        if (drawerDrag) {
+          var pt = e.touches ? e.touches[0] : e;
+          if (touchInDrawerScroll(e)) {
+            var dy = Math.abs(pt.clientY - drawerDrag.startY);
+            var dx = Math.abs(pt.clientX - drawerDrag.startX);
+            if (dy > dx) { drawerDrag = null; return; } // 垂直滑动意图：交还原生滚动
+          }
+          moveDrawerDrag(pt.clientX); if (e.cancelable) e.preventDefault();
+        }
+      }, { passive: false });
+      window.addEventListener('touchend', function (e) {
+        if (drawerDrag && e.changedTouches.length) endDrawerDrag(e.changedTouches[0].clientX);
+      }, { passive: true });
+      window.addEventListener('mousedown', function (e) {
+        if (touchInDrawerScroll(e)) return; // 滚动区内的点击不进入抽屉拖拽，保留原生滚动
+        if (drawerRatio > 0.02 && drawerEl && e.target && drawerEl.contains(e.target)) startDrawerDrag(e.clientX, e.clientY);
+      });
+      window.addEventListener('mousemove', function (e) { if (drawerDrag) moveDrawerDrag(e.clientX); });
+      window.addEventListener('mouseup', function (e) { if (drawerDrag) endDrawerDrag(e.clientX); });
+      if (drawerCloseBtn) drawerCloseBtn.addEventListener('click', function () { setDrawerOpen(false); });
+      function setDrawerOpen(open) { animateDrawerTo(open); }
+
+      // ---------- 左上角 24 小时制数字时钟（点击弹出设置浮窗，替代原左滑手势） ----------
+      var clockEl = document.getElementById('clock');
+      var clockTimeEl = document.getElementById('clockTime');
+      var clockDateEl = document.getElementById('clockDate');
+      var WEEK_CN = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+      function updateClock() {
+        if (!clockTimeEl) return;
+        var d = new Date();
+        var hh = ('0' + d.getHours()).slice(-2);
+        var mm = ('0' + d.getMinutes()).slice(-2);
+        clockTimeEl.textContent = hh + ':' + mm;            // 24 小时制 HH:MM（无秒）
+        if (clockDateEl) clockDateEl.textContent = (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + WEEK_CN[d.getDay()];
+      }
+      updateClock();
+      setInterval(updateClock, 1000); // 每秒刷新，保证分钟准点切换
+      if (clockEl) clockEl.addEventListener('click', function () { resetTimer(); setDrawerOpen(true); });
+
+      // 浮窗联动已移除（v3）：滑出/收起过程中镜头与车模保持原位，OrbitControls 不受影响
+
+      renderer.domElement.addEventListener('pointerdown', resetTimer);
+      renderer.domElement.addEventListener('wheel', resetTimer);
+      renderer.domElement.addEventListener('touchstart', resetTimer, { passive: true });
+      controls.addEventListener('change', function () { if (!isTweening) resetTimer(); });
+      window.addEventListener('pointerdown', resetTimer);
+      window.addEventListener('touchstart', resetTimer, { passive: true });
+      // 浮窗容器点击：仅重置计时（浮窗内按钮各自有处理逻辑）
+      if (sceneBtnsEl) sceneBtnsEl.addEventListener('click', function () { resetTimer(); });
+
+      setInterval(function () {
+        if (Date.now() - lastActivity >= BTN_HIDE_MS) hideBtns();
+        if (Date.now() - lastActivity >= UI_HIDE_MS) hideUI();
+        // 空闲自动归位（浮窗展开/跟手期间不再暂停，v3）
+        if (!model || isTweening) return;
+        if (Date.now() - lastActivity >= IDLE_MS) beginTween();
+      }, 250);
+
+      // ---------- 红绿灯倒计时（路径A：Android 原生层推送 window.__lightData / __lightActivateResult） ----------
+      // 数据链路：原生 LightSdkController 每 500ms 推送 window.__lightData = {ready, activateNeeded, status, ts, lights[]}；
+      // 覆盖式赋值无法监听属性变化，沿用轮询模式（500ms 节流）更新左上角卡片与设置页按钮状态。
+      var lightCardEl = null, lightDotEl = null, lightTextEl = null;
+      var drawerTrafficBtn = null;
+      var lightQrBoxEl = null, lightQrImgEl = null, lightQrStatusEl = null;
+      var lastLightPoll = 0;
+      var lastActivateTs = 0;
+      var lastQrDataTs = 0;
+      var LIGHT_DOT_CLASS = { 1: 'red', 2: 'green', 3: 'yellow', 4: 'yellow' }; // state: 1红/2绿/3黄/4黄闪
+      var LIGHT_NAME = { 1: '红', 2: '绿', 3: '黄', 4: '黄闪' };
+      function initLightCard() {
+        lightCardEl = document.getElementById('lightCard');
+        lightDotEl = document.getElementById('lightDot');
+        lightTextEl = document.getElementById('lightText');
+        drawerTrafficBtn = document.getElementById('drawerLightTrafficBtn');
+        lightQrBoxEl = document.getElementById('lightQrBox');
+        lightQrImgEl = document.getElementById('lightQrImg');
+        lightQrStatusEl = document.getElementById('lightQrStatus');
+        if (drawerTrafficBtn) {
+          drawerTrafficBtn.addEventListener('click', function (ev) {
+            if (ev && ev.preventDefault) ev.preventDefault();
+            resetTimer();
+            try {
+              if (window.AndroidLightBridge) {
+                // 实体化：调原生桥获取微信扫码绑定激活二维码（lightFetchQrCode）
+                var r = window.AndroidLightBridge.lightFetchQrCode();
+                if (r) {
+                  try { var j = JSON.parse(r); if (j && j.ok) setTrafficBtnText('红绿灯倒计时：二维码获取中…'); } catch (e) { /* 忽略 */ }
+                }
+                // 展示二维码区域（等原生推 __lightQrData）
+                if (lightQrBoxEl) lightQrBoxEl.style.display = 'flex';
+                setLightQrStatus('二维码获取中…');
+              } else {
+                setTrafficBtnText('红绿灯倒计时：桥未就绪');
+              }
+            } catch (e) {
+              setTrafficBtnText('红绿灯倒计时：调用失败');
+            }
+          });
+        }
+      }
+      function setLightQrStatus(t) {
+        if (lightQrStatusEl) lightQrStatusEl.textContent = t;
+      }
+      function setLightDot(cls) {
+        if (!lightDotEl) return;
+        lightDotEl.className = cls || 'off';
+      }
+      function setLightCardText(t) {
+        if (lightTextEl) lightTextEl.textContent = t;
+      }
+      function setTrafficBtnText(t) {
+        if (drawerTrafficBtn) drawerTrafficBtn.textContent = t;
+      }
+      function updateLightCard(d) {
+        if (!d) {
+          setLightCardText('红绿灯服务未就绪');
+          setLightDot('off');
+          return;
+        }
+        // 1) 未激活（status=9）：显示扫码引导
+        if (d.activateNeeded) {
+          setLightCardText('待激活（扫码）');
+          setLightDot('yellow');
+          return;
+        }
+        // 2) 会话未初始化/异常（status 非 0）：显示占位文案
+        if (typeof d.status === 'number' && d.status !== 0) {
+          setLightCardText(d.status === 2 ? '红绿灯服务初始化中…' : '红绿灯服务未就绪（' + d.status + '）');
+          setLightDot('off');
+          return;
+        }
+        // 3) 有路口灯态：取最近路口第一个灯，显示灯色圆点 + 剩余秒数
+        var lights = d.lights;
+        if (lights && lights.length > 0) {
+          var l = lights[0];
+          var name = LIGHT_NAME[l.state] || ('灯态' + l.state);
+          var txt = name + ' ' + l.remainSec + 's';
+          if (typeof l.dist === 'number' && l.dist > 0) txt += ' · ' + Math.round(l.dist) + 'm';
+          setLightCardText(txt);
+          setLightDot(LIGHT_DOT_CLASS[l.state] || 'off');
+        } else {
+          setLightCardText('红绿灯服务已就绪 · 暂无路口');
+          setLightDot('off');
+        }
+      }
+      function pollLightData() {
+        if (Date.now() - lastLightPoll < 500) return;
+        lastLightPoll = Date.now();
+        try {
+          var d = window.__lightData;
+          if (!d) { updateLightCard(null); return; }
+          updateLightCard(d);
+          // 设置页按钮状态联动：未激活/就绪/初始化中
+          if (drawerTrafficBtn) {
+            if (d.activateNeeded) setTrafficBtnText('红绿灯倒计时：待激活（扫码）');
+            else if (typeof d.status === 'number' && d.status === 0) setTrafficBtnText('红绿灯倒计时：就绪');
+            else setTrafficBtnText('红绿灯倒计时：未激活');
+          }
+          // 微信扫码绑定激活：原生经 window.__lightQrData={state,imageDataUrl,bound,error,ts} 推送
+          var q = window.__lightQrData;
+          if (q && q.ts && q.ts !== lastQrDataTs) {
+            lastQrDataTs = q.ts;
+            if (lightQrBoxEl) lightQrBoxEl.style.display = 'flex';
+            if (q.bound) {
+              // 绑定成功：隐藏二维码，显示成功文案
+              if (lightQrImgEl) lightQrImgEl.style.display = 'none';
+              setLightQrStatus('绑定成功，读秒已启用');
+              setTrafficBtnText('红绿灯倒计时：已绑定');
+            } else if (q.imageDataUrl) {
+              if (lightQrImgEl) { lightQrImgEl.src = q.imageDataUrl; lightQrImgEl.style.display = 'block'; }
+              setLightQrStatus('请用微信扫码绑定激活读秒');
+              setTrafficBtnText('红绿灯倒计时：等待扫码绑定');
+            } else if (q.error) {
+              if (lightQrImgEl) lightQrImgEl.style.display = 'none';
+              setLightQrStatus(q.error);
+              setTrafficBtnText('红绿灯倒计时：' + q.error);
+            } else {
+              setLightQrStatus('二维码获取中…');
+            }
+          }
+          // 扫码激活结果回调：原生经 window.__lightActivateResult={ok,message,ts} 推送
+          var r = window.__lightActivateResult;
+          if (r && r.ts && r.ts !== lastActivateTs) {
+            lastActivateTs = r.ts;
+            setTrafficBtnText(r.ok ? '红绿灯倒计时：激活成功' : ('红绿灯倒计时：' + (r.message || '激活失败')));
+          }
+        } catch (e) { /* 解析失败不阻塞 3D 渲染 */ }
+      }
+
+      // ---------- 底部音频频谱（麦克风触发 + 正弦波常态，64 柱） ----------
+      // 数据链路：Android 原生层 MicCapture（AudioRecord MIC → FFT → 30Hz~10kHz 对数 64 bin
+      //   → per-bin 峰值归一化）经 evaluateJavascript 写入 window.__audioFreq（0~1 数组，bins[0]=低频）。
+      // drawFreq 每帧读取：存在有效能量 → 按频率高到低排列驱动柱条（柱 0 = 高频端）；
+      //   静音 / 无数据 → 回落为正弦波常态波动（柔和波浪基线，非静止）。
+      var freqCanvas = null, freqCtx = null;
+      var spectrumOn = true;       // 频谱开关：默认开启（关闭时 drawFreq 仅清空画布，不绘制柱条）
+      var prevHeights = null;      // 上一帧柱高（用于平滑过渡渐变）
+      function initAudioSpectrum() {
+        // 无条件创建 Canvas：保证频谱容器永远存在
+        try {
+          if (!freqCanvas) {
+            freqCanvas = document.createElement('canvas');
+            freqCanvas.id = 'freqCanvas';
+            document.body.appendChild(freqCanvas);
+            freqCtx = freqCanvas.getContext('2d');
+            sizeFreqCanvas();
+          }
+        } catch (e) { /* 兜底失败不影响车模 */ }
+        // 频谱开关：默认开，点击切换 spectrumOn 并更新文案（关闭时 drawFreq 清空画布不绘制柱条）
+        var spectrumBtn = document.getElementById('drawerSpectrumBtn');
+        if (spectrumBtn) {
+          spectrumBtn.addEventListener('click', function () {
+            spectrumOn = !spectrumOn;
+            spectrumBtn.textContent = spectrumOn ? '频谱：开' : '频谱：关';
+            spectrumBtn.classList.toggle('on', spectrumOn);
+          });
+        }
+      }
+      function sizeFreqCanvas() {
+        if (!freqCanvas) return;
+        var dpr = Math.min(window.devicePixelRatio || 1, 2);
+        var w = window.innerWidth;
+        var h = Math.max(40, Math.round(window.innerHeight / 5)); // 屏幕高度的五分之一
+        freqCanvas.style.width = w + 'px';
+        freqCanvas.style.height = h + 'px';
+        freqCanvas.width = Math.max(1, Math.round(w * dpr));
+        freqCanvas.height = Math.max(1, Math.round(h * dpr));
+        if (freqCtx) freqCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        // 同步歌名/歌手：歌手行顶端对齐正弦波峰值柱顶（target 0.8 → 柱高 ≈ 0.81×频谱高），
+        // 间距与字体均以纵向为基准，保证全屏/分屏观感一致
+        var meta = document.getElementById('songMeta');
+        if (meta) {
+          var peakTop = Math.round(h * 0.81); // 峰值柱顶距屏幕底的高度
+          var artistLineH = Math.round(window.innerHeight * 0.022 * 1.25); // 2.2vh × line-height 1.25
+          meta.style.bottom = Math.max(4, peakTop + artistLineH) + 'px';
+        }
+      }
+      function drawFreq() {
+        if (!freqCanvas || !freqCtx) return;
+        var ctx = freqCtx;
+        var W = window.innerWidth;
+        var H = Math.max(40, Math.round(window.innerHeight / 5));
+        ctx.clearRect(0, 0, W, H);
+        if (!spectrumOn) return; // 频谱开关关闭：保留透明占位，不绘制柱条
+        var N = 64; // 柱条数量
+        var bw = W / N;
+        var now = performance.now();
+
+        // 1) 麦克风数据源：window.__audioFreq（原生层推 0~1 数组；静音推全 0，不伪造数据）
+        var mic = window.__audioFreq;
+        var micActive = false;
+        if (mic && mic.length === N) {
+          for (var k = 0; k < N; k++) {
+            if (mic[k] > 0.02) { micActive = true; break; }
+          }
+        }
+
+        // 2) 目标柱高：麦克风有能量 → 按频率高到低排列（柱 0 = 高频端 bins[N-1-i]），
+        //    叠加全局波浪与组间错峰保留节奏感；无能量 / 静音 → 正弦波常态波动。
+        var targets = new Array(N);
+        var wavePeriod = 1500; // ms，常态波浪周期
+        var waveBase = 2 * Math.PI * (now % wavePeriod) / wavePeriod; // 0~2π 全局相位
+        var waveGroups = 8;                 // 64 柱分 8 组，每组相位依次错开
+        var waveGroupSpan = N / waveGroups; // 每组 8 根柱
+        var groupPhase = 0;
+        if (micActive) {
+          for (var i = 0; i < N; i++) {
+            var raw = mic[N - 1 - i]; // 频率高到低：柱 0 取最高频 bin(63)
+            if (raw < 0) raw = 0; if (raw > 1) raw = 1;
+            groupPhase = Math.floor(i / waveGroupSpan) * (2 * Math.PI / waveGroups); // 组间相位依次偏移
+            var wave = 0.75 + 0.25 * (0.5 + 0.5 * Math.sin(waveBase + groupPhase)); // 0.75~1.0 组波
+            var t = raw * wave;
+            if (t > 1) t = 1;
+            targets[i] = t;
+          }
+        } else if (cartPlaying) {
+          // 车机播放中：正弦波常态波动，峰 80% / 谷 20%
+          for (var i = 0; i < N; i++) {
+            groupPhase = Math.floor(i / waveGroupSpan) * (2 * Math.PI / waveGroups);
+            targets[i] = 0.2 + 0.6 * (0.5 + 0.5 * Math.sin(waveBase + groupPhase));
+          }
+        } else {
+          // 未播放：静止基线（无波动），麦克风输入不受播放门控影响
+          for (var i = 0; i < N; i++) {
+            targets[i] = 0.1;
+          }
+        }
+
+        // 3) 平滑过渡绘制：上升快跟（attack 敏捷）、下降缓落（decay 拖尾），峰值衰减观感
+        var hmax = Math.max(4, Math.round(H * 0.98));
+        var baseH = Math.max(1, Math.round(H * 0.02)); // 极矮基线：常态/静音时仍可见
+        if (!prevHeights) { prevHeights = new Array(N).fill(0); }
+        for (var i = 0; i < N; i++) {
+          var target = targets[i];
+          var v = prevHeights[i];
+          if (target > v) { v = v * 0.72 + target * 0.28; }
+          else { v = v * 0.90 + target * 0.10; }
+          if (Math.abs(v - prevHeights[i]) < 0.003) { v = target; } // 已收敛则直接到位
+          prevHeights[i] = v;
+          var h = Math.max(baseH, Math.round(Math.pow(v, 0.85) * hmax)); // 幂次 0.85：矮柱提亮，全段错落更明显
+          var x = i * bw + bw * 0.08;
+          var w = bw * 0.84;
+          var y = H - h - 2;
+          ctx.fillStyle = 'rgba(255,255,255,' + (0.16 + v * 0.34).toFixed(2) + ')';
+          ctx.fillRect(x, y, w, h);
+          if (v > 0.55) {
+            ctx.fillStyle = 'rgba(255,255,255,' + (0.3 + v * 0.45).toFixed(2) + ')';
+            ctx.fillRect(x, y, w, Math.min(2, h));
+          }
+        }
+      }
+
+      // ---------- 右侧歌词面板（Android 原生层推送 LRC，横屏显示） ----------
+      // 数据链路：原生层 evaluateJavascript 写入 window.__lyricData = {song, artist, lyric, ts}；
+      // 本模块每帧轮询该对象（覆盖式赋值无法监听属性变化，轮询最可靠），
+      // 内容变化时解析 LRC 并按本地时钟逐行高亮滚动；无歌词时显示占位提示。
+      var lyricPanel = null, lyricMeta = null, lyricBody = null, lyricPlaceholder = null;
+      var songMetaEl = null, songTitleEl = null, songArtistEl = null; // 右下方歌曲信息元素
+      var lyricLines = [];        // 解析后的歌词行 [{t: 毫秒, text}]
+      var lyricCurrent = -1;      // 当前高亮行索引
+      var lyricStart = 0;         // 本段歌词的本地时钟起点（performance.now）
+      var lyricPaused = false;    // 车机暂停中：本地歌词时钟冻结（方案二：播放状态对齐）
+      var pausedAtMs = 0;         // 暂停时刻（performance.now），恢复时补回该段时长
+      var lastLyricApplied = '';  // 已应用的内容指纹（防重复解析）
+      function initLyricPanel() {
+        lyricPanel = document.getElementById('lyricPanel');
+        lyricMeta = document.getElementById('lyricMeta');
+        lyricBody = document.getElementById('lyricBody');
+        lyricPlaceholder = document.getElementById('lyricPlaceholder');
+        songMetaEl = document.getElementById('songMeta');
+        songTitleEl = document.getElementById('songTitle');
+        songArtistEl = document.getElementById('songArtist');
+        if (songMetaEl) songMetaEl.style.display = 'block'; // 默认显示未播放占位
+        if (songTitleEl) songTitleEl.textContent = '未播放歌曲';
+        if (songArtistEl) songArtistEl.textContent = '----';
+        updateLyricPanelVisibility();
+        createLyricSprite3D();
+        drawLyricSprite3D(); // 初始化即绘制：无数据时显示"暂无歌词"占位
+      }
+      /** 解析 LRC：支持 [mm:ss]、[mm:ss.xx]、[mm:ss:xx]；同一行多标签展开多行；元信息行 [ar:..] 等跳过 */
+      function parseLrc(text) {
+        var out = [];
+        var lines = String(text).split(/\r?\n/);
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i].trim();
+          if (!line) continue;
+          var re = /\[(\d{1,2}):(\d{1,3})(?:[.:](\d{1,3}))?\]/g;
+          var m, last = 0, tags = [];
+          while ((m = re.exec(line)) !== null) {
+            var min = parseInt(m[1], 10);
+            var sec = parseInt(m[2], 10);
+            var frac = m[3] ? parseInt(m[3], 10) : 0;
+            var t;
+            if (m[3] && m[3].length === 2) t = min * 60000 + sec * 1000 + frac * 10; // .xx 百分之一秒
+            else t = min * 60000 + sec * 1000 + frac;                                  // .xxx 毫秒
+            tags.push({ t: t });
+            last = m.index + m[0].length;
+          }
+          if (tags.length) {
+            var textPart = line.slice(last).trim();
+            if (/^[a-zA-Z]{2}:/.test(textPart)) continue; // [ti:][ar:][al:][by:] 元信息行
+            for (var j = 0; j < tags.length; j++) {
+              out.push({ t: tags[j].t, text: textPart });
+            }
+          } else {
+            out.push({ t: -1, text: line }); // 无时间标签行：作为普通文本展示
+          }
+        }
+        out.sort(function (a, b) { return a.t - b.t; });
+        return out;
+      }
+
+      // ---------- v4：歌词 3D 层（Sprite 位于车模后方，始终显示；天空球背景已恢复） ----------
+      var lyricSprite3D = null;
+      var lyricCanvas3D = null;
+      var lyricCtx3D = null;
+      var lyricTex3D = null;
+      var LYRIC_CANVAS_W = 1024;
+      var LYRIC_CANVAS_H = 512;
+      function createLyricSprite3D() {
+        if (lyricSprite3D) return;
+        lyricCanvas3D = document.createElement('canvas');
+        lyricCanvas3D.width = LYRIC_CANVAS_W;
+        lyricCanvas3D.height = LYRIC_CANVAS_H;
+        lyricCtx3D = lyricCanvas3D.getContext('2d');
+        lyricTex3D = new THREE.CanvasTexture(lyricCanvas3D);
+        lyricTex3D.minFilter = THREE.LinearFilter;
+        lyricTex3D.magFilter = THREE.LinearFilter;
+        lyricTex3D.generateMipmaps = false;
+        var mat = new THREE.SpriteMaterial({ map: lyricTex3D, transparent: true, depthWrite: false, depthTest: true });
+        lyricSprite3D = new THREE.Sprite(mat);
+        lyricSprite3D.visible = false;
+        scene.add(lyricSprite3D);
+      }
+      function setLyricSpritePose() {
+        if (!lyricSprite3D || !model) return;
+        var b = new THREE.Box3().setFromObject(model);
+        var c = b.getCenter(new THREE.Vector3());
+        var sz = b.getSize(new THREE.Vector3());
+        var s = Math.max(sz.x, sz.z);
+        lyricSprite3D.scale.set(s * 2.4, s * 1.2, 1);
+        var lyrOff = sz.z * 1.35;                 // 距车模距离
+        var lyrAng = Math.PI / 6;                 // 左偏 30 度，避免歌词贴右侧被屏幕裁切
+        lyricSprite3D.position.set(c.x - lyrOff * Math.sin(lyrAng), c.y + sz.y * 0.82, c.z - lyrOff * Math.cos(lyrAng));
+      }
+      function drawLyricSprite3D() {
+        // v7：3D Sprite 车后歌词层（字体为 v4 原尺寸的 40%，位置抬高）；超长单句按 canvas 宽度自动换行
+        if (!lyricCtx3D || !lyricSprite3D) return;
+        var ctx = lyricCtx3D;
+        var W = LYRIC_CANVAS_W, H = LYRIC_CANVAS_H;
+        ctx.clearRect(0, 0, W, H);
+        if (!lyricLines.length) {
+          ctx.globalAlpha = 0.7;
+          ctx.font = '300 ' + Math.round(H * 0.048) + 'px "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText('暂无歌词', W / 2, H / 2);
+          ctx.globalAlpha = 1;
+          lyricSprite3D.visible = true;
+          if (lyricTex3D) lyricTex3D.needsUpdate = true;
+          return;
+        }
+        lyricSprite3D.visible = true;
+        var n = lyricLines.length;
+        var idx = lyricCurrent >= 0 ? lyricCurrent : -1;
+        var start, count;
+        if (idx < 0) { start = 0; count = Math.min(5, n); }
+        else { start = Math.max(0, idx - 2); count = Math.min(5, n - start); }
+        var rowH0 = H * 0.12;
+        var baseY = H * 0.07;
+        var fontActive0 = Math.round(H * 0.1);
+        var fontNormal0 = Math.round(H * 0.08);
+        var fontFamily = '"Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif';
+        // 简约高级：细字重（300/500）、宽字距（letterSpacing）、柔和投影（shadow）
+        if (typeof ctx.letterSpacing === 'string') ctx.letterSpacing = Math.round(fontNormal0 * 0.22) + 'px';
+        // 超长单句换行：按 canvas 宽度 measureText 逐字折行，单句最多 2 行，超出以省略号收尾
+        function wrapLyricText(text, maxWidth, maxLines) {
+          if (!text) return [''];
+          if (ctx.measureText(text).width <= maxWidth) return [text];
+          var lines = [];
+          var cur = '';
+          for (var ci = 0; ci < text.length; ci++) {
+            var ch = text.charAt(ci);
+            var test = cur + ch;
+            if (cur.length > 0 && ctx.measureText(test).width > maxWidth) {
+              lines.push(cur);
+              cur = ch;
+              if (lines.length >= maxLines) break;
+            } else {
+              cur = test;
+            }
+          }
+          if (lines.length < maxLines && cur.length > 0) lines.push(cur);
+          // 末行仍超宽：省略号截断
+          if (lines.length) {
+            var lastIdx = lines.length - 1;
+            var last = lines[lastIdx];
+            if (ctx.measureText(last).width > maxWidth) {
+              while (last.length > 0 && ctx.measureText(last + '…').width > maxWidth) last = last.slice(0, -1);
+              lines[lastIdx] = last + '…';
+            }
+          }
+          return lines;
+        }
+        // 预排：统计换行后的总行数，动态压缩行高保证全部可见
+        var mw = W * 0.94;
+        var wrapped = [];
+        var totalRows = 0;
+        for (var i = 0; i < count; i++) {
+          var li = start + i;
+          var text = lyricLines[li] ? lyricLines[li].text : '';
+          var isActive = (li === idx);
+          ctx.font = (isActive ? '500 ' : '300 ') + (isActive ? fontActive0 : fontNormal0) + 'px ' + fontFamily;
+          var lines = wrapLyricText(text, mw, 2);
+          wrapped.push({ li: li, isActive: isActive, lines: lines });
+          totalRows += lines.length;
+        }
+        var availH = H - baseY - H * 0.05; // 底部预留 5% 边距
+        var rowH = Math.min(rowH0, availH / Math.max(1, totalRows));
+        var fontActive = Math.max(14, Math.min(fontActive0, Math.round(rowH * 0.72)));
+        var fontNormal = Math.max(12, Math.min(fontNormal0, Math.round(rowH * 0.58)));
+        // 正式绘制：按换行后的行逐行输出（居中；当前句白亮 + 阴影，普通句半透明）
+        var rowIdx = 0;
+        for (var i = 0; i < count; i++) {
+          var item = wrapped[i];
+          var edge = Math.min(i, count - 1 - i);
+          ctx.globalAlpha = item.isActive ? 1 : (0.42 * (1 - edge * 0.22));
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          for (var j = 0; j < item.lines.length; j++) {
+            var lText = item.lines[j];
+            ctx.font = (item.isActive ? '500 ' : '300 ') + (item.isActive ? fontActive : fontNormal) + 'px ' + fontFamily;
+            var lY = baseY + (rowIdx + 0.5) * rowH;
+            if (item.isActive) {
+              // 当前句：纯白 + 柔和投影（无粗黑描边，改用阴影制造层次）
+              ctx.save();
+              ctx.shadowColor = 'rgba(0,0,0,0.65)';
+              ctx.shadowBlur = fontActive * 0.55;
+              ctx.shadowOffsetY = fontActive * 0.06;
+              ctx.fillStyle = '#ffffff';
+              ctx.fillText(lText, W / 2, lY);
+              ctx.restore();
+            } else {
+              // 普通句：半透明白 + 深色柔和投影，保证浅色/深色背景均可读
+              ctx.save();
+              ctx.shadowColor = 'rgba(0,0,0,0.6)';
+              ctx.shadowBlur = fontNormal * 0.5;
+              ctx.shadowOffsetY = fontNormal * 0.05;
+              ctx.fillStyle = 'rgba(255,255,255,0.92)';
+              ctx.fillText(lText, W / 2, lY);
+              ctx.restore();
+            }
+            rowIdx++;
+          }
+        }
+        ctx.globalAlpha = 1;
+        if (lyricTex3D) lyricTex3D.needsUpdate = true;
+      }
+      function renderLyricLines() {
+        if (!lyricBody) return;
+        lyricBody.innerHTML = '';
+        for (var i = 0; i < lyricLines.length; i++) {
+          var div = document.createElement('div');
+          div.className = 'lyric-line';
+          div.textContent = lyricLines[i].text;
+          lyricBody.appendChild(div);
+        }
+        lyricCurrent = -1;
+      }
+      function applyHighlight(idx) {
+        var children = lyricBody.children;
+        var n = children.length;
+        for (var i = 0; i < n; i++) {
+          // B项：最多显示 5 句（当前句 + 前后各 2 句）；无当前句时显示前 5 句
+          var on = (idx < 0) ? (i < 5) : (i >= idx - 2 && i <= idx + 2);
+          children[i].style.display = on ? '' : 'none';
+          children[i].classList.toggle('active', i === idx);
+        }
+        if (idx >= 0 && children[idx]) {
+          var el = children[idx];
+          var target = el.offsetTop - lyricBody.clientHeight / 2 + el.offsetHeight / 2;
+          lyricBody.scrollTop = Math.max(0, target);
+        }
+      }
+      function showLyricPlaceholder() {
+        lyricLines = [];
+        if (lyricBody) lyricBody.innerHTML = '';
+        if (lyricPlaceholder) lyricPlaceholder.style.display = 'flex';
+        drawLyricSprite3D();
+      }
+      /** 更新右上角歌曲信息（歌名 + 歌手）；无媒体时显示"未播放歌曲 / ----"占位 */
+      function updateSongMeta(d) {
+        if (!songMetaEl) return;
+        songMetaEl.style.display = 'block';
+        var hasMedia = !!(d && (d.song || d.artist));
+        if (songTitleEl) songTitleEl.textContent = hasMedia && d.song ? d.song : '未播放歌曲';
+        if (songArtistEl) songArtistEl.textContent = hasMedia && d.artist ? d.artist : '----';
+      }
+      /** 方案二：车机播放状态对齐（transact(18)）。2026-10-15 真机日志确认语义与早期假设相反：
+       *  0=播放中（position 每秒+1）、1=暂停（position 冻结），其余非 0/1 值一律按暂停兜底。
+       *  播放→暂停：冻结本地歌词时钟；暂停→播放：补回暂停时长继续滚动。
+       *  注意：此方案不覆盖手动拖动进度条场景，拖动后仍需 applyLyricPos 的 pos 校准兜底。 */
+      var cartPlaying = false; // 车机播放门控：仅播放中才走正弦波，未播放静止；麦克风输入不受影响
+      function applyPlayStatus(status) {
+        if (typeof status !== 'number' || status < 0) return;
+        var playing = (status === 0); // 真机日志确认：0=播放中（position 每秒+1），1=暂停（position 冻结）
+        cartPlaying = playing; // 同步频谱门控
+        // 频谱为麦克风触发 + 播放门控正弦波，不再无条件常态波动
+        if (playing) {
+          if (lyricPaused) {
+            lyricStart += (performance.now() - pausedAtMs); // 补上暂停时长，从暂停点继续
+            lyricPaused = false;
+          }
+        } else {
+          if (!lyricPaused) {
+            pausedAtMs = performance.now();
+            lyricPaused = true;
+          }
+        }
+      }
+      /** 应用原生推送：仅内容（歌名/歌手/歌词）变化时完整解析渲染；纯位置变化走 applyLyricPos 轻量校准 */
+      function applyLyricData(d) {
+        if (!d) return;
+        var fingerprint = (d.song || '') + '\u0001' + (d.artist || '') + '\u0001' + (d.lyric || '');
+        if (fingerprint === lastLyricApplied) return;
+        lastLyricApplied = fingerprint;
+        if (lyricMeta) lyricMeta.textContent = (d.song ? d.song : '未知歌曲') + (d.artist ? ' - ' + d.artist : '');
+        updateSongMeta(d);
+        if (!d.lyric || !d.lyric.trim()) {
+          showLyricPlaceholder();
+          return;
+        }
+        if (lyricPlaceholder) lyricPlaceholder.style.display = 'none';
+        lyricLines = parseLrc(d.lyric);
+        // 首帧从 0 开始走本地时钟，不信任 pos：车机 transact(20) 的单位/索引语义尚未确认，
+        // 直接拿它校准会把歌词时钟拉回开头（卡死）。暂停对齐交给 applyLyricPos 的漂移门限处理。
+        lyricStart = performance.now();
+        if (lyricPaused) pausedAtMs = performance.now(); // 切歌时若车机暂停中，冻结起点同步到此刻（停在第一行）
+        renderLyricLines();
+        lyricCurrent = -1;
+        drawLyricSprite3D();
+      }
+      /** 轻量对齐：仅把本地歌词时钟校准到系统播放位置（不重新解析 LRC、不重建纹理）。
+       *  pos<=0 视为无效进度跳过校准：防止车机返回 0/异常值时歌词被反复拉回开头。
+       *  2026-10-15 真机日志确认：transact(20) 数组 [0]=当前播放秒数（原生已 ×1000 转毫秒推送），
+       *  语义可靠可信任；漂移门限放宽到 5 分钟以覆盖拖动进度条的大跳变（实测拖动跳变可达 73s），
+       *  仅拦截异常大值；暂停靠 applyPlayStatus 冻结本地时钟，此处不覆盖。 */
+      function applyLyricPos(pos) {
+        if (typeof pos !== 'number' || pos <= 0) return;
+        if (lyricPaused) return; // 暂停中本地时钟已冻结，忽略 pos 校准
+        var local = performance.now() - lyricStart; // 本地时钟推算的当前歌词时间（ms）
+        var drift = Math.abs(pos - local);
+        // 漂移门限 5 分钟：超过说明 pos 异常（非进度字段/单位错误），忽略防时钟被拉飞
+        if (drift > 300000) {
+          if (window.console && console.warn) console.warn('Lyric: pos ignored drift=' + drift + 'ms pos=' + pos + ' local=' + local);
+          return;
+        }
+        lyricStart = performance.now() - pos;
+      }
+      /** 每帧推进：以本地时钟从 0 开始按 LRC 时间轴高亮当前行 */
+      function updateLyricHighlight() {
+        if (!lyricLines.length) return;
+        var t = lyricPaused ? (pausedAtMs - lyricStart) : (performance.now() - lyricStart);
+        var idx = -1;
+        for (var i = 0; i < lyricLines.length; i++) {
+          if (lyricLines[i].t >= 0 && lyricLines[i].t <= t) idx = i;
+          else if (lyricLines[i].t > t) break;
+        }
+        if (idx !== lyricCurrent) {
+          lyricCurrent = idx;
+          applyHighlight(idx);
+          drawLyricSprite3D();
+        }
+      }
+      /** v6：改回 3D Sprite 车后歌词层，DOM 固定层停用（始终隐藏，保留结构便于回退） */
+      function updateLyricPanelVisibility() {
+        if (!lyricPanel) return;
+        lyricPanel.style.display = 'none';
+      }
+      /** 每帧轮询原生推送对象（覆盖式赋值监听不到属性变化，轮询最可靠） */
+      var lastLyricPoll = 0;
+      function pollLyricData() {
+        if (Date.now() - lastLyricPoll < 150) return;
+        lastLyricPoll = Date.now();
+        try {
+          var d = window.__lyricData;
+          if (!d) return;
+          // 播放状态变化优先处理（暂停/恢复立即对齐本地歌词时钟）
+          if (typeof d.status === 'number' && d.status >= 0) {
+            applyPlayStatus(d.status);
+          }
+          var fingerprint = (d.song || '') + '\u0001' + (d.artist || '') + '\u0001' + (d.lyric || '');
+          if (fingerprint !== lastLyricApplied) {
+            applyLyricData(d);                       // 内容变化：完整解析渲染
+          } else if (typeof d.pos === 'number' && d.pos >= 0) {
+            applyLyricPos(d.pos);                    // 内容未变：仅校准播放位置
+          }
+        } catch (e) { /* 解析失败不阻塞渲染 */ }
+      }
+
+      // ---------- 窗口适配 ----------
+      function onResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        sizeFreqCanvas();
+        updateLyricPanelVisibility();
+        DRAWER_W_PX = window.innerWidth * 0.33; // 浮窗宽度随 vw 自适应
+        applyDrawerTransform(); // 按新宽度重算浮窗位置（保持当前展开比例）
+        if (model) computeHomePose(); // 屏幕尺寸变化时按新视口重算归位目标
+      }
+      window.addEventListener('resize', onResize);
+      window.addEventListener('orientationchange', function () { setTimeout(onResize, 250); });
+
+      // ---------- 渲染循环 ----------
+      function animate() {
+        requestAnimationFrame(animate);
+        drawFreq();
+        pollLyricData();      // 轮询原生推送的歌词数据（内容变化才处理）
+        pollLightData();      // 轮询原生推送的红绿灯数据（500ms 节流）
+        updateLyricHighlight(); // 按本地时钟推进高亮当前行
+        updateLyricPanelVisibility(); // 横竖屏切换兜底（旋转未触发 resize 时）
+        // 实时按当前宽高比选择归位方案：比例状态（竖屏/横屏）变化时立即重算归位目标
+        // （窗口尺寸变化本身走 onResize；此处在未触发 resize 的旋转/切屏场景下兜底）
+        var portraitNow = window.innerHeight > window.innerWidth;
+        if (portraitNow !== lastPortrait) {
+          lastPortrait = portraitNow;
+          if (model) computeHomePose();
+        }
+        // 归位（生效目标：自定义视角开启且已记录时用记录值，否则用代码默认归位视角）
+        var hP = (useCustomHome && customHomeSet) ? customHomePos : homePos;
+        var hT = (useCustomHome && customHomeSet) ? customHomeTarget : homeTarget;
+        if (isTweening) {
+          camera.position.lerp(hP, 0.06);
+          controls.target.lerp(hT, 0.06);
+          camera.lookAt(controls.target);
+          if (camera.position.distanceTo(hP) < 0.02 && controls.target.distanceTo(hT) < 0.02) {
+            camera.position.copy(hP);
+            controls.target.copy(hT);
+            camera.lookAt(controls.target);
+            controls.update();
+            isTweening = false;
+            controls.enabled = true;
+            resetTimer();
+          }
+        } else {
+          controls.update();
+        }
+        // 浮窗展开/收起动画推进（JS 驱动，逐帧联动 3D）
+        if (drawerAnim) {
+          var dk = (performance.now() - drawerAnim.t0) / drawerAnim.dur;
+          if (dk >= 1) dk = 1;
+          var de = 1 - Math.pow(1 - dk, 3); // easeOutCubic
+          drawerRatio = drawerAnim.from + (drawerAnim.to - drawerAnim.from) * de;
+          if (dk >= 1) { drawerRatio = drawerAnim.to; drawerAnim = null; }
+          applyDrawerTransform();
+        }
+        // 浮窗联动已移除（v3）：不移动相机与车模，OrbitControls 保持自由
+        renderer.render(scene, camera);
+      }
+
+      buildLights();
+      createWater(); // 水面平面 y≈0（半透明蓝灰，高金属低粗糙）
+      loadEXRScene(currentSkyKey); // 预加载当前场景天空球（启动时若随时间同步已切到目标场景，则按该场景加载并缓存）
+      initAudioSpectrum();
+      initLyricPanel();
+      initLightCard();
+      // ---------- 顶部安全区：全屏沉浸后系统悬浮图标（头像/电量/wifi）与顶部内容重叠，
+      // ---------- 通过 AndroidAudioBridge.getStatusBarHeight() 获取状态栏高度换算 vw 偏移，
+      // ---------- 将 #clock / #lightCard / #lyricPanel 的 top 在原有 vw 基础上整体下移 ----------
+      function applyStatusBarSafeArea() {
+        var sbPx = 32; // 兜底：桥调用失败或返回 0 时取 32px
+        try {
+          if (window.AndroidAudioBridge && typeof window.AndroidAudioBridge.getStatusBarHeight === 'function') {
+            var sb = parseInt(window.AndroidAudioBridge.getStatusBarHeight(), 10);
+            if (sb && sb > 0) sbPx = sb;
+          }
+        } catch (e) { /* 异常保持兜底 */ }
+        var safeVw = sbPx / (window.screen.width / 100); // 用屏幕宽度换算 vw（v1.14 初版）
+        if (!isFinite(safeVw) || safeVw <= 0) return;
+        var targets = {
+          clock: 2.2,      // 时钟（v1.14 初版）
+          lightCard: 14.6, // 红绿灯卡片（v1.14 初版）
+          lyricPanel: 1    // 歌词面板（v1.14 初版）
+        };
+        for (var id in targets) {
+          var el = document.getElementById(id);
+          if (el) el.style.top = (targets[id] + safeVw) + 'vw';
+        }
+        // 设置抽屉 #drawer：整体下移安全区，避免标题/场景按钮/灯光按钮与顶部系统悬浮图标重叠
+        var drawer = document.getElementById('drawer');
+        if (drawer) drawer.style.paddingTop = (4 + safeVw) + 'vw';
+        var drawerClose = document.getElementById('drawerCloseBtn');
+        if (drawerClose) drawerClose.style.top = (2.4 + safeVw) + 'vw';
+      }
+      applyStatusBarSafeArea();
+      window.addEventListener('resize', applyStatusBarSafeArea);
+      animate();
+    })();
+  </script>
+</body>
+</html>

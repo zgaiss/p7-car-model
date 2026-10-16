@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>P7 SHOW</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0a1420; font-family: "Microsoft YaHei", system-ui, sans-serif; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+  #container { position: fixed; inset: 0; }
+  #container canvas { display: block; }
+  #status { position: fixed; top: 12px; left: 16px; color: rgba(255,255,255,0.92); font-size: 13px; letter-spacing: 1px; text-shadow: 0 1px 3px rgba(0,0,0,0.7); z-index: 10; pointer-events: none; }
+  #debug { position: fixed; top: 44px; left: 16px; color: rgba(255,255,120,0.95); font-size: 12px; z-index: 10; pointer-events: none; }
+  .hint { position: fixed; bottom: 122px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.85); font-size: 11px; z-index: 10; text-shadow: 0 1px 3px rgba(0,0,0,0.7); pointer-events: none; white-space: nowrap; }
+  #ui { position: fixed; left: 50%; bottom: 56px; transform: translateX(-50%); z-index: 30; display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 14px; background: rgba(12, 20, 34, 0.62); backdrop-filter: blur(8px); box-shadow: 0 6px 24px rgba(0,0,0,0.35); }
+  .group { display: flex; align-items: center; gap: 8px; }
+  .label { color: rgba(255,255,255,0.72); font-size: 12px; margin-right: 2px; white-space: nowrap; }
+  .mode-btn { min-width: 58px; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.10); color: #fff; font-size: 12px; cursor: pointer; transition: background 0.15s, box-shadow 0.15s; }
+  .mode-btn:active { background: rgba(255,255,255,0.28); }
+  .mode-btn.on { background: rgba(64, 150, 255, 0.55); border-color: rgba(120,190,255,0.9); box-shadow: 0 0 10px rgba(80,160,255,0.5); }
+  .sep { width: 1px; height: 28px; background: rgba(255,255,255,0.22); }
+  #closeAllBtn { min-width: 72px; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(255,140,140,0.45); background: rgba(200,60,60,0.25); color: #ffd0d0; font-size: 12px; cursor: pointer; }
+  #closeAllBtn:active { background: rgba(200,60,60,0.45); }
+  #lightBtn.on { background: rgba(255, 200, 60, 0.5); border-color: rgba(255,220,120,0.9); box-shadow: 0 0 10px rgba(255,190,60,0.4); }
+</style>
+</head>
+<body>
+  <div id="container"></div>
+  <div id="status">正在加载模型…</div>
+  <div id="debug"></div>
+  <div class="hint">拖动旋转 · 双指缩放 · 停止操作 5 秒自动归位</div>
+  <div id="ui">
+    <div class="group">
+      <span class="label">场景</span>
+      <div class="mode-btn on" id="modeDay">白天</div>
+      <div class="mode-btn" id="modeDusk">傍晚</div>
+      <div class="mode-btn" id="modeNight">黑夜</div>
+    </div>
+    <div class="sep"></div>
+    <div class="group">
+      <div class="mode-btn on" id="lightBtn">车灯</div>
+    </div>
+  </div>
+
+  <script src="three.min.js"></script>
+  <script src="GLTFLoader.js"></script>
+  <script src="OrbitControls.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      var container = document.getElementById('container');
+      var statusEl = document.getElementById('status');
+      var debugEl = document.getElementById('debug');
+
+      // ---------- 渲染器 / 场景 / 相机 ----------
+      var scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x9fc4e8);
+
+      var camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 500);
+
+      var renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      container.appendChild(renderer.domElement);
+
+      // ---------- 控制器（旋转 + 缩放），限制仰角避免翻到车底 ----------
+      var controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.08;
+      controls.enablePan = false;
+      controls.enableZoom = true;
+      controls.rotateSpeed = 0.8;
+      controls.zoomSpeed = 1.0;
+      controls.minPolarAngle = 0.12;
+      controls.maxPolarAngle = Math.PI * 0.51; // 略低于齐平，但不翻到底盘以下
+
+      // ---------- 灯光引用 / 环境贴图 ----------
+      var hemi, dirSun, dirFill;
+      var pmrem = null;
+      var envTex = null;
+
+      function buildLights() {
+        hemi = new THREE.HemisphereLight(0xe8ecf2, 0x3a3e46, 0.55);
+        dirSun = new THREE.DirectionalLight(0xffffff, 0.5);
+        dirSun.position.set(-8, 10, 8); // 主光左上方柔和打亮
+        dirFill = new THREE.DirectionalLight(0x8fa2bd, 0.3);
+        dirFill.position.set(-6, 3, -8);
+        scene.add(hemi);
+        scene.add(dirSun);
+        scene.add(dirFill);
+      }
+
+      // 用 6 面渐变 CubeTexture 作为环境贴图（兼容 WebGL1，无需 PMREM），让金属漆 / 地面出现环境反射倒影
+      // 全局 env（无亮带）用于地面/玻璃等；车漆专用 env（含影棚柔光灯带）用于细长条高光
+      var paintEnvTex = null;
+      function buildEnv(top, mid, bottom, ground, horizon) {
+        function sideCanvas(withStrip) {
+          var c = document.createElement('canvas');
+          c.width = 64; c.height = 64;
+          var ctx = c.getContext('2d');
+          var g = ctx.createLinearGradient(0, 0, 0, 64);
+          g.addColorStop(0, top);
+          g.addColorStop(0.4, mid);
+          g.addColorStop(0.5, horizon);
+          g.addColorStop(0.52, ground);
+          g.addColorStop(1, ground);
+          ctx.fillStyle = g;
+          ctx.fillRect(0, 0, 64, 64);
+          if (withStrip) {
+            // 影棚柔光灯带：水平细长条高光（softbox strip），贴合车顶弧线与引擎盖前沿
+            var lg = ctx.createLinearGradient(0, 26, 0, 36);
+            lg.addColorStop(0, 'rgba(255,255,255,0.0)');
+            lg.addColorStop(0.5, 'rgba(255,255,255,0.30)');
+            lg.addColorStop(1, 'rgba(255,255,255,0.0)');
+            ctx.fillStyle = lg;
+            ctx.fillRect(0, 26, 64, 10);
+          }
+          return c;
+        }
+        var faces = [], pfaces = [];
+        // CubeTexture 面序: [px, nx, py, ny, pz, nz]；亮带仅加在 py(上) 与 pz(前)，避免侧面/右侧块状光斑
+        for (var i = 0; i < 6; i++) {
+          var s = sideCanvas(false);
+          faces.push(s);
+          pfaces.push((i === 2 || i === 4) ? sideCanvas(true) : s);
+        }
+        var cubeTex = new THREE.CubeTexture(faces);
+        cubeTex.needsUpdate = true;
+        var paintTex = new THREE.CubeTexture(pfaces);
+        paintTex.needsUpdate = true;
+        if (envTex) scene.environment = null;
+        envTex = cubeTex;
+        paintEnvTex = paintTex;
+        scene.environment = envTex;
+      }
+
+      // ---------- 镜面地面（深灰棚拍质感，配合环境贴图形成清晰倒影） ----------
+      var water;
+      var groundTex = null; // 地面贴图（含轻微棚拍亮带），黑夜模式会移除以避免车底光带
+      function buildWater() {
+        var geo = new THREE.CircleGeometry(80, 64);
+        geo.rotateX(-Math.PI / 2);
+        // 地面贴图：深灰底 + 竖向棚拍光带，模拟镜面反射观感
+        var gcanvas = document.createElement('canvas');
+        gcanvas.width = 256; gcanvas.height = 256;
+        var gctx = gcanvas.getContext('2d');
+        gctx.fillStyle = '#262a30';
+        gctx.fillRect(0, 0, 256, 256);
+        // 地面贴图亮带已大幅弱化：白天仅保留轻微棚拍质感，黑夜不再出现刺眼白带
+        var lg = gctx.createLinearGradient(0, 0, 256, 0);
+        lg.addColorStop(0, 'rgba(255,255,255,0.02)');
+        lg.addColorStop(0.3, 'rgba(255,255,255,0.05)');
+        lg.addColorStop(0.5, 'rgba(255,255,255,0.09)');
+        lg.addColorStop(0.7, 'rgba(255,255,255,0.05)');
+        lg.addColorStop(1, 'rgba(255,255,255,0.02)');
+        gctx.fillStyle = lg;
+        gctx.fillRect(0, 0, 256, 256);
+        groundTex = new THREE.CanvasTexture(gcanvas);
+        groundTex.needsUpdate = true;
+        water = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+          color: 0x343840,
+          map: groundTex,
+          metalness: 0.95,
+          roughness: 0.12,
+          side: THREE.DoubleSide,
+          depthWrite: false
+        }));
+        water.position.y = 0;
+        scene.add(water);
+      }
+
+      // ---------- 背景渐变（棚拍灰，CanvasTexture） ----------
+      function makeSky(top, mid, bottom, hillColor) {
+        var canvas = document.createElement('canvas');
+        canvas.width = 256; canvas.height = 256;
+        var ctx = canvas.getContext('2d');
+        var g = ctx.createLinearGradient(0, 0, 0, 256);
+        g.addColorStop(0, top);
+        g.addColorStop(0.55, mid);
+        g.addColorStop(1, bottom);
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, 256, 256);
+        var tex = new THREE.CanvasTexture(canvas);
+        tex.needsUpdate = true;
+        scene.background = tex;
+      }
+
+      // ---------- 场景状态：day / dusk / night ----------
+      var sceneMode = 'day';
+      var lightSwitchOn = true;
+      var fog = null;
+
+      function applyFog(color, nearMul, farMul) {
+        if (fog) scene.remove(fog);
+        scene.fog = new THREE.Fog(new THREE.Color(color), radius * nearMul, radius * farMul);
+      }
+
+      function setScene(mode) {
+        sceneMode = mode;
+        document.getElementById('modeDay').classList.toggle('on', mode === 'day');
+        document.getElementById('modeDusk').classList.toggle('on', mode === 'dusk');
+        document.getElementById('modeNight').classList.toggle('on', mode === 'night');
+
+        if (mode === 'day') {
+          // 棚拍风格：灰色渐变背景 + 深灰镜面地面（无远山），柔光棚低对比照明
+          makeSky('#f0f2f5', '#e2e5ea', '#d4d8df');
+          buildEnv('#eceef0', '#c3c8d1', '#878e99', '#2e3238', '#878e99');
+          applyFog(0xe6e9ee, 3.0, 12);
+          hemi.intensity = 0.65; hemi.color.set(0xffffff); hemi.groundColor.set(0x6a6f76);
+          dirSun.intensity = 0.32; dirSun.color.set(0xffffff); dirSun.position.set(-8, 10, 8); // 主光左上方柔和打亮
+          dirFill.intensity = 0.22; dirFill.color.set(0xdfe6f0);
+          water.material.color.set(0x3a3e45);
+          water.material.opacity = 1;
+          water.material.map = groundTex;
+          water.material.needsUpdate = true;
+        } else if (mode === 'dusk') {
+          makeSky('#2e3a6e', '#d9804a', '#ffc896', 'rgba(84,92,140,0.85)');
+          buildEnv('#2e3a6e', '#d9804a', '#ffd9a8', '#8a94b0', '#ffd9a8');
+          applyFog(0xa06a4a, 2.2, 8);
+          hemi.intensity = 0.5; hemi.color.set(0xffc8a8); hemi.groundColor.set(0x334455);
+          dirSun.intensity = 0.95; dirSun.color.set(0xff8a3a); dirSun.position.set(-8, 5, 10);
+          dirFill.intensity = 0.18; dirFill.color.set(0x8899cc);
+          water.material.color.set(0x3a4a62);
+          water.material.opacity = 1;
+          water.material.map = groundTex;
+          water.material.needsUpdate = true;
+        } else {
+          makeSky('#030814', '#0e1830', '#1c2c4a', 'rgba(10,18,32,0.9)');
+          buildEnv('#030814', '#0e1830', '#223450', '#0a1420', '#223450');
+          applyFog(0x0a1428, 2.0, 10);
+          hemi.intensity = 0.22; hemi.color.set(0x334466); hemi.groundColor.set(0x111122);
+          dirSun.intensity = 0.3; dirSun.color.set(0x8899cc); dirSun.position.set(0, 12, -4);
+          dirFill.intensity = 0.08; dirFill.color.set(0x5566aa);
+          water.material.color.set(0x14243c);
+          water.material.opacity = 1;
+          water.material.map = null; // 黑夜移除地面亮带纹理，消除车底横向白色光带（经排查为地面贴图亮带，非灯珠漏出）
+          water.material.needsUpdate = true;
+        }
+        applyLights();
+        applyCarpaint(); // 切换场景时同步刷新车漆质感与环境反射
+        resetIdle();
+      }
+
+      // ---------- 车灯（前贯穿灯 / 前大灯 / 尾贯穿灯） ----------
+      var headMat = null, tailMat = null;
+
+      function applyLights() {
+        if (!headMat || !tailMat) return;
+        var f = 0;
+        if (lightSwitchOn) {
+          if (sceneMode === 'dusk') f = 0.55;
+          else if (sceneMode === 'night') f = 1.0;
+        }
+        headMat.emissive.set(0xdce8ff);
+        headMat.emissiveIntensity = 1.9 * f;
+        tailMat.emissive.set(0xff1a1a);
+        tailMat.emissiveIntensity = 2.1 * f;
+        document.getElementById('lightBtn').classList.toggle('on', lightSwitchOn);
+      }
+
+      // ---------- 模型状态 ----------
+      var model = null;
+      var center = new THREE.Vector3(0, 0, 0);
+      var radius = 1;
+      var homePos = new THREE.Vector3(-4, 2, 4);
+      var homeTarget = new THREE.Vector3(0, 0, 0);
+
+      // ---------- 开合部件定义 ----------
+      // 节点：door_LF 左前门 / door_RF 右前门 / door_LR 左后门 / door_RR 右后门 / hood 前盖 / trunk 尾箱
+      var PART_DEFS = {
+        door_LF: { axis: 'y', dir: 1,  max: 0.62, label: '左前门' },
+        door_RF: { axis: 'y', dir: -1, max: 0.62, label: '右前门' },
+        door_LR: { axis: 'y', dir: -1, max: 0.62, label: '左后门' },
+        door_RR: { axis: 'y', dir: 1,  max: 0.62, label: '右后门' },
+        hood:    { axis: 'x', dir: 1,  max: 0.70, label: '前盖' },
+        trunk:   { axis: 'x', dir: -1, max: 0.78, label: '尾箱' }
+      };
+      var GLASS_MAP = { door_glass_LF: 'door_LF', door_glass_RF: 'door_RF', door_glass_LR: 'door_LR', door_glass_RR: 'door_RR' };
+      var parts = {};   // key -> {mesh, glass, hinge, axis, cur, target}
+      var partMeshes = [];
+
+      // ---------- 模型加载 ----------
+      var loader = new THREE.GLTFLoader();
+      loader.load('model/model.glb', function (gltf) {
+        model = gltf.scene;
+        scene.add(model);
+        // 车底贴地：把模型下移到底部接触地面 y=0
+        var preBox = new THREE.Box3().setFromObject(model);
+        model.position.y = -preBox.min.y;
+
+        var box = new THREE.Box3().setFromObject(model);
+        center = box.getCenter(new THREE.Vector3());
+        var size = box.getSize(new THREE.Vector3());
+        radius = Math.max(size.length() / 2, 0.5);
+
+        controls.minDistance = radius * 0.35;
+        controls.maxDistance = radius * 6.5;
+
+        // 用车灯 mesh 几何中心自动定位车头方向（headlight 在车头、taillight 在车尾）
+        // 注意：GLB 节点本身无 translation，必须用 mesh 顶点包围盒中心，不能用 getWorldPosition
+        model.updateMatrixWorld(true);
+        var headPos = null, tailPos = null;
+        model.traverse(function (child) {
+          if (!child.isMesh) return;
+          var nm = (child.name || '').toLowerCase();
+          if (nm === 'headlight' || nm === 'taillight') {
+            child.geometry.computeBoundingBox();
+            var c = child.geometry.boundingBox.getCenter(new THREE.Vector3()).applyMatrix4(child.matrixWorld);
+            if (nm === 'headlight') headPos = c; else tailPos = c;
+          }
+        });
+        var forward = new THREE.Vector3(0, 0, -1);
+        if (headPos && tailPos) {
+          forward.subVectors(headPos, tailPos);
+          forward.y = 0;
+          if (forward.lengthSq() > 1e-6) forward.normalize();
+        }
+        var up = new THREE.Vector3(0, 1, 0);
+        var right = new THREE.Vector3().crossVectors(forward, up).normalize();
+        var left = right.clone().negate();
+        // 车头左前 45°：车头方向 + 车左侧方向，各 0.7 权重归一
+        var dirVec = forward.clone().multiplyScalar(0.7).add(left.clone().multiplyScalar(0.7)).normalize();
+        homePos.copy(center).add(dirVec.clone().multiplyScalar(radius * 2.2));
+        homePos.y = center.y + 0.06; // 略高于平视，微俯视，可见车底与倒影贴合
+        homeTarget.copy(center);
+        homeTarget.y = center.y; // 与相机同高，保持平视
+
+        camera.position.copy(homePos);
+        controls.target.copy(homeTarget);
+        controls.update();
+
+        // 材质微调：玻璃深度写入 / 金属度适配（无环境贴图时更自然）
+        fixMaterials(model);
+        // 镜像倒影：翻转模型副本贴在地面下，形成镜面反射观感
+        (function () {
+          var mirror = model.clone();
+          mirror.name = 'mirror';
+          mirror.scale.set(1, -1, 1);
+          mirror.position.y = 0.005; // 倒影顶面紧贴车底（车底在 y=0），完全贴地无缝隙
+          mirror.traverse(function (child) {
+            if (!child.isMesh) return;
+            child.material = new THREE.MeshBasicMaterial({
+              color: 0x0a0c10,
+              transparent: true,
+              opacity: 0.35,
+              depthWrite: false,
+              side: THREE.DoubleSide
+            });
+            child.frustumCulled = false;
+            child.renderOrder = 3;
+          });
+          scene.add(mirror);
+        })();
+        // 车灯材质引用
+        model.traverse(function (child) {
+          if (!child.isMesh) return;
+          if (child.name === 'headlight' && child.material) headMat = child.material;
+          if (child.name === 'taillight' && child.material) tailMat = child.material;
+        });
+        applyLights();
+
+        statusEl.textContent = 'P7 SHOW · 2020 XPeng P7 已加载 · 拖动旋转 / 双指缩放';
+        resetIdle();
+      }, undefined, function (err) {
+        statusEl.textContent = '模型加载失败：' + (err && err.message ? err.message : '未知错误');
+      });
+
+      // ---------- 哑光银灰车漆参数 ----------
+      var carpaintMats = [];
+      function applyCarpaint() {
+        carpaintMats.forEach(function (m) {
+          if (!m) return;
+          // 哑光银灰漆面：低金属感 + 中高粗糙度 + 专用柔光环境，反射细腻、细长条高光贴合流线
+          m.color.set(0x9ba0a9);
+          m.metalness = 0.06;
+          m.roughness = 0.55;
+          m.envMap = paintEnvTex || null;
+          m.envMapIntensity = 0.48;
+          m.needsUpdate = true;
+        });
+      }
+
+      // ---------- 材质微调 ----------
+      function fixMaterials(root) {
+        root.traverse(function (child) {
+          if (!child.isMesh) return;
+          var name = (child.name || '').toLowerCase();
+          var isCarpaint = /^body_carpaint$|^hood$|^trunk$|^door_[lr][fr]$/.test(name);
+          var isMirror = /mirror/.test(name);                     // interior_mirror 后视镜：不透明镜面，排除在玻璃之外
+          var isGlass = /glass/.test(name);                       // 车窗/挡风玻璃
+          var isLampGlass = /^headlight$|^taillight$/.test(name); // 车灯透明灯罩
+          var isChrome = /chrome/.test(name);
+          var isRim = /rim/.test(name);
+          // 后视镜与玻璃件可能共用同一 GLB 材质（如 mat#4 BLEND），必须克隆材质后独立调整，避免互相污染
+          if (isMirror && child.material) {
+            if (Array.isArray(child.material)) {
+              child.material = child.material.map(function (x) { return x ? x.clone() : x; });
+            } else {
+              child.material = child.material.clone();
+            }
+          }
+          var mats = Array.isArray(child.material) ? child.material : [child.material];
+          mats.forEach(function (m) {
+            if (!m) return;
+            if (isMirror) {
+              // 后视镜：深色不透明镜面（原 GLB 误设为半透明 BLEND）
+              m.transparent = false;
+              m.opacity = 1;
+              m.depthWrite = true;
+              m.depthTest = true;
+              m.side = THREE.FrontSide;
+              m.color.set(0x1c2126);
+              m.metalness = 0.85;
+              m.roughness = 0.18;
+            } else if (isGlass) {
+              m.transparent = true;
+              m.depthWrite = true;  // 玻璃写深度，避免整车内透视
+              m.depthTest = true;
+              m.side = THREE.DoubleSide;
+              m.metalness = 0.2;
+              m.roughness = 0.08;
+            } else if (isLampGlass) {
+              // 车灯透明灯罩：透过灯罩可见内部灯珠/结构，配合 emissive 发光
+              m.transparent = true;
+              m.opacity = 0.45;
+              m.depthWrite = true;
+              m.depthTest = true;
+              m.side = THREE.DoubleSide;
+              m.metalness = 0.1;
+              m.roughness = 0.12;
+            } else if (isCarpaint) {
+              // 哑光银灰车漆：收集材质后统一应用质感参数（低金属/中高粗糙/柔和环境反射）
+              if (m.map) m.map = null;
+              if (carpaintMats.indexOf(m) < 0) carpaintMats.push(m);
+              applyCarpaint();
+            } else if (isChrome) {
+              m.metalness = 0.85;
+              m.roughness = 0.2;
+            } else if (isRim) {
+              m.metalness = 0.9;
+              m.roughness = 0.2;
+            } else {
+              m.metalness = Math.min(m.metalness || 0.2, 0.5);
+            }
+            m.needsUpdate = true;
+          });
+        });
+      }
+
+      // ---------- 铰链设置：把几何平移到铰链点，节点 position 设为铰链，绕轴旋转即开合 ----------
+      function setupInteractiveParts(root) {
+        var defs = PART_DEFS;
+        Object.keys(defs).forEach(function (key) {
+          var mesh = null, glassMesh = null;
+          root.traverse(function (child) {
+            if (!child.isMesh) return;
+            if (child.name === key) mesh = child;
+            if (child.name === GLASS_MAP[key] + '_glass' || child.name === (GLASS_MAP[key] ? 'door_glass_' + key.slice(4) : '')) {
+              if (child.name === 'door_glass_' + key.slice(4)) glassMesh = child;
+            }
+          });
+          if (!mesh) return;
+          var def = defs[key];
+          var b = new THREE.Box3().setFromObject(mesh);
+          var hinge = new THREE.Vector3();
+          if (key.indexOf('door_') === 0) {
+            var isLeft = (key === 'door_LF' || key === 'door_LR');
+            hinge.x = isLeft ? b.max.x : b.min.x;      // 铰链贴近车身侧
+            hinge.z = (key === 'door_LF' || key === 'door_RF') ? b.max.z : b.min.z; // 前门铰链在车头侧，后门在车尾侧
+            hinge.y = b.center.y;
+          } else {
+            hinge.x = b.center.x;
+            hinge.y = b.center.y;
+            hinge.z = (key === 'hood') ? b.max.z : b.min.z;
+          }
+          // 平移几何 → 铰链到原点
+          mesh.geometry = mesh.geometry.clone();
+          mesh.geometry.translate(-hinge.x, -hinge.y, -hinge.z);
+          mesh.position.copy(hinge);
+          if (glassMesh) {
+            glassMesh.geometry = glassMesh.geometry.clone();
+            glassMesh.geometry.translate(-hinge.x, -hinge.y, -hinge.z);
+            glassMesh.position.copy(hinge);
+          }
+          parts[key] = { mesh: mesh, glass: glassMesh, hinge: hinge, axis: def.axis, dir: def.dir, max: def.max, cur: 0, target: 0 };
+          partMeshes.push(mesh);
+          if (glassMesh) partMeshes.push(glassMesh);
+        });
+        // 兜底：玻璃节点即使没匹配到也注册到对应门
+        root.traverse(function (child) {
+          if (!child.isMesh) return;
+          var gk = GLASS_MAP[child.name];
+          if (gk && parts[gk] && !parts[gk].glass) {
+            var p = parts[gk];
+            child.geometry = child.geometry.clone();
+            child.geometry.translate(-p.hinge.x, -p.hinge.y, -p.hinge.z);
+            child.position.copy(p.hinge);
+            p.glass = child;
+            partMeshes.push(child);
+          }
+        });
+      }
+
+      // ---------- 开合控制 ----------
+      function togglePart(key) {
+        var p = parts[key];
+        if (!p) return;
+        p.target = p.target > 0.05 ? 0 : p.dir * p.max;
+        statusEl.textContent = (PART_DEFS[key].label) + (p.target > 0.05 ? '已打开' : '已关闭') + ' · 可点击其他部件继续开合';
+        resetIdle();
+      }
+
+      function closeAll() {
+        Object.keys(parts).forEach(function (k) { parts[k].target = 0; });
+        statusEl.textContent = '所有车门 / 前盖 / 尾箱已关闭';
+        resetIdle();
+      }
+
+      // ---------- UI 按钮 ----------
+      document.getElementById('modeDay').addEventListener('click', function () { setScene('day'); });
+      document.getElementById('modeDusk').addEventListener('click', function () { setScene('dusk'); });
+      document.getElementById('modeNight').addEventListener('click', function () { setScene('night'); });
+      document.getElementById('lightBtn').addEventListener('click', function () { lightSwitchOn = !lightSwitchOn; applyLights(); resetIdle(); });
+
+      // ---------- 无操作 5 秒自动归位 ----------
+      var IDLE_MS = 5000;
+      var lastActivity = Date.now();
+      var isTweening = false;
+
+      function resetIdle() { lastActivity = Date.now(); }
+      function beginTween() { isTweening = true; controls.enabled = false; }
+
+      renderer.domElement.addEventListener('pointerdown', resetIdle);
+      renderer.domElement.addEventListener('wheel', resetIdle);
+      renderer.domElement.addEventListener('touchstart', resetIdle, { passive: true });
+      controls.addEventListener('change', function () { if (!isTweening) resetIdle(); });
+
+      setInterval(function () {
+        if (!model || isTweening) return;
+        if (Date.now() - lastActivity >= IDLE_MS) beginTween();
+      }, 250);
+
+      // ---------- 窗口适配 ----------
+      function onResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+      window.addEventListener('resize', onResize);
+      window.addEventListener('orientationchange', function () { setTimeout(onResize, 250); });
+
+      // ---------- 渲染循环 ----------
+      function animate() {
+        requestAnimationFrame(animate);
+        // 归位
+        if (isTweening) {
+          camera.position.lerp(homePos, 0.06);
+          controls.target.lerp(homeTarget, 0.06);
+          camera.lookAt(controls.target);
+          if (camera.position.distanceTo(homePos) < 0.02 && controls.target.distanceTo(homeTarget) < 0.02) {
+            camera.position.copy(homePos);
+            controls.target.copy(homeTarget);
+            camera.lookAt(controls.target);
+            controls.update();
+            isTweening = false;
+            controls.enabled = true;
+            resetIdle();
+          }
+        } else {
+          controls.update();
+        }
+        renderer.render(scene, camera);
+      }
+
+      buildLights();
+      buildWater();
+      makeSky('#f0f2f5', '#e2e5ea', '#d4d8df');
+      buildEnv('#eceef0', '#c3c8d1', '#878e99', '#2e3238', '#878e99');
+      setScene('day');
+      animate();
+    })();
+  </script>
+</body>
+</html>

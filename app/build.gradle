@@ -1,0 +1,45 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Credentials stay in ignored root local.properties; public builds disable the service by default.
+def lightProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withInputStream { lightProperties.load(it) }
+}
+
+android {
+    buildFeatures {
+        buildConfig true
+    }
+    namespace 'com.xpeng.p7show'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId "com.xpeng.p7show"
+        buildConfigField 'String', 'P7_LIGHT_SDK_KEY', groovy.json.JsonOutput.toJson(lightProperties.getProperty('p7.light.sdkKey', ''))
+        buildConfigField 'String', 'P7_LIGHT_ACCESS_KEY', groovy.json.JsonOutput.toJson(lightProperties.getProperty('p7.light.accessKey', ''))
+        minSdk 24
+        targetSdk 36
+        // 正式版本迭代：v1.17 -> v1.18（修复场景4 晨间4K 背景不生效：重新生成 morning001b_4k.hdr）
+        versionCode 18
+        versionName "1.18"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // 全部资源本地化，无外部依赖；WebView 由系统提供
+}
