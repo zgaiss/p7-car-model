@@ -34,6 +34,11 @@ android {
         }
     }
 
+    // Keep source models for offline preparation/tests, but ship only the active rig.
+    androidResources {
+        ignoreAssetsPatterns.addAll(['XPP7_Model_v1.glb', 'XPP7_Model_v4.glb'])
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
