@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>P7 SHOW</title>
+<link rel="stylesheet" href="car-paint.css">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { width: 100%; height: 100%; overflow: hidden; background: #0a1420; font-family: "Microsoft YaHei", system-ui, sans-serif; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
@@ -95,6 +96,12 @@
     text-overflow: ellipsis;
     max-width: 40vw;
   }
+  #openingControls { position: fixed; right: 16px; top: max(16px, env(safe-area-inset-top)); z-index: 15; display: grid; grid-template-columns: repeat(2, minmax(76px, 1fr)); gap: 6px; padding: 8px; background: rgba(14,22,30,.72); border: 1px solid #ffffff24; border-radius: 14px; backdrop-filter: blur(12px); }
+  #openingControls button { min-height: 42px; padding: 8px 10px; border-radius: 8px; border: 1px solid #ffffff30; background: #ffffff0a; color: #fff; font: 13px system-ui, sans-serif; cursor: pointer; }
+  #openingControls button[aria-pressed="true"] { background: #82bbd530; border-color: #9cd7e9; }
+  #openingControls button:disabled { opacity: .4; cursor: wait; }
+  #openingControls button:focus-visible { outline: 2px solid #9cd7e9; outline-offset: 2px; }
+  @media (max-width: 520px) { #openingControls { top: auto; bottom: max(64px, env(safe-area-inset-bottom)); right: 10px; grid-template-columns: repeat(3, minmax(70px, 1fr)); } }
   #status { position: fixed; left: 2vw; bottom: 2vw; color: rgba(255,255,255,0.55); font-size: 11px; letter-spacing: 1px; text-shadow: 0 1px 3px rgba(0,0,0,0.7); z-index: 10; pointer-events: none; opacity: 0.6; } /* 加载说明文字：屏幕最左下方（本轮 UI 微调） */
   #freqCanvas { position: fixed; left: 0; bottom: 0; width: 100%; height: 48px; z-index: 20; pointer-events: none; display: block; }
   #lightBtn {
@@ -276,6 +283,13 @@
     font-size: 0.92vw;
     color: #ffffff;
   }
+  @media (max-width: 600px) {
+    #drawer { width: min(90vw, 360px); padding-left: 18px; padding-right: 18px; gap: 12px; }
+    #drawerTitle { font-size: 20px; min-height: 44px; display: flex; align-items: center; }
+    #drawerCloseBtn { width: 44px; height: 44px; right: 12px; font-size: 24px; }
+    #drawerScroll { gap: 10px; }
+    #drawer .skyBtn { min-height: 44px; font-size: 14px; }
+  }
 </style>
 </head>
 <body>
@@ -306,6 +320,7 @@
     <div id="drawerTitle">设置</div>
     <div id="drawerScroll">
       <div id="drawerSceneWrap"></div>
+      <div id="drawerPaintSettings"></div>
       <button id="drawerTimeSyncBtn" class="skyBtn">随时间同步：开</button>
       <button id="drawerDefaultViewBtn" class="skyBtn">默认视角：开</button>
       <button id="drawerCustomViewBtn" class="skyBtn">自定义视角：关</button>
@@ -319,6 +334,7 @@
     </div>
   </div>
 
+  <div id="openingControls" role="group" aria-label="车门及舱盖控制"></div>
   <div id="lightBtn">灯光关</div>
   <div id="sceneBtns" class="sceneBtns"></div>
   <div id="lyricPanel">
@@ -331,6 +347,8 @@
   <script src="GLTFLoader.js"></script>
   <script src="OrbitControls.js"></script>
   <script src="RGBELoader.js"></script>
+  <script src="body-openings.js"></script>
+  <script src="car-paint.js"></script>
   <script>
     (function () {
       'use strict';
@@ -401,6 +419,7 @@
             for (var i = 0; i < arr.length; i++) if (arr[i].color) arr[i].color.copy(reflColor);
           }
         });
+        if (carPaint) carPaint.syncReflection(reflection, reflColor);
       }
       function createWater() {
         var geo = new THREE.PlaneGeometry(300, 300);
@@ -466,6 +485,7 @@
           o.material = mat;
         });
         scene.add(reflection);
+        carPaint.syncReflection(reflection, reflColor);
       }
 
       // ---------- 天空球场景列表：daylight / twilight / night（HDR 可切换） ----------
@@ -946,18 +966,31 @@
         homeFrac = xHalf / (d * tanH); // 记录实际水平占屏比例（调试）
       }
 
-      // ---------- 模型加载（GLTFLoader 原生加载，加载后不做任何材质 / 属性手动修改） ----------
+      var carPaint = createCarPaint(THREE, { onActivity: resetTimer });
+      carPaint.mountSettings(document.getElementById('drawerPaintSettings'));
+      var toggleCarLights = null;
+      var openings = createBodyOpenings(THREE, { canvas: renderer.domElement, camera: camera, panel: document.getElementById('openingControls'), onActivity: resetTimer, onDoubleTap: function () { if (toggleCarLights) toggleCarLights(); } });
+      openings.bind();
+      window.addEventListener('pagehide', function (event) { if (!event.persisted) { openings.dispose(); carPaint.dispose(); } });
+
+      // ---------- 模型加载（离线拆分的六舱门模型；保留原材质，按设置覆盖车漆颜色） ----------
       var loader = new GLTFLoader();
-      loader.load('model/XPP7_Model_v4.glb', function (gltf) {
+      loader.load('model/XPP7_Model_openings.glb', function (gltf) {
         model = gltf.scene;
         scene.add(model);
 
-        // 车底贴地：仅调整模型摆放位置，不触碰任何材质属性
+        // 车底贴地：仅调整模型摆放位置
         // 只统计可见 mesh（复用 getVisibleBounds），避免隐藏部件把包围盒底拉低导致轮胎悬空
         var preBox = getVisibleBounds(model);
         model.position.y = -preBox.min.y;
+        carPaint.load(model);
+        // Preserve original material identity before reflection replaces its materials.
+        model.traverse(function (o) { if (o.isMesh) { var m = Array.isArray(o.material) ? o.material[0] : o.material; o.userData.sourceMaterial = m && m.name; } });
         buildReflection(); // 车底镜面倒影（翻转镜像 + 渐变淡出，贴车底无缝隙）
 
+        openings.load(model, reflection);
+        // Explicit local QA opt-in; normal app launches expose no scene handles.
+        if (new URLSearchParams(location.search).get('qa') === '1') window.__p7QA = { model: model, reflection: reflection, camera: camera, controls: controls, openings: openings, paint: carPaint, setLights: function (on) { if (carLightApply) carLightApply(on); } };
         var box = new THREE.Box3().setFromObject(model);
         center = box.getCenter(new THREE.Vector3());
         var size = box.getSize(new THREE.Vector3());
@@ -973,7 +1006,7 @@
         controls.target.copy(homeTarget);
         controls.update();
 
-        statusEl.textContent = 'P7 SHOW · 2020 XPeng P7 已加载 · 拖动旋转 / 双指缩放';
+        statusEl.textContent = 'P7 SHOW · 2020 XPeng P7 已加载 · 点击车门或舱盖开关 / 拖动旋转 / 双击车身切换灯光';
         if (debugEl) {
           var nMat = 0, tMat = 0, mMat = 0;
           gltf.scene.traverse(function (o) {
@@ -993,70 +1026,34 @@
         // ---------- 灯光开关：双 mesh visible 切换 ----------
         // Mesh.008（Obj3d66-19967172-10-383）绑定 light_off=关灯态；Mesh.061（Obj3d66-19967172-10-383.001）绑定 light_on=开灯态。
         // 定位按材质名（light_off / light_on）匹配，不依赖节点/网格命名；切换只改 visible，避免旧渲染器材质 uniform 失效问题。
-        var lightMesh = null, lightOnMesh = null;
+        var lightMeshes = [], lightOnMeshes = [];
         gltf.scene.traverse(function (o) {
           if (!o.isMesh) return;
-          var mm = Array.isArray(o.material) ? o.material[0] : o.material;
-          if (!mm || !mm.name) return;
-          if (mm.name === 'light_off') lightMesh = o;
-          if (mm.name === 'light_on') lightOnMesh = o;
+          if (o.userData.sourceMaterial === 'light_off') lightMeshes.push(o);
+          if (o.userData.sourceMaterial === 'light_on') lightOnMeshes.push(o);
         });
-        if (lightMesh && lightOnMesh) {
+        if (lightMeshes.length && lightOnMeshes.length) {
           var lightOn = false;
           function applyLight(on) {
             lightOn = on;
-            lightMesh.visible = !on;
-            lightOnMesh.visible = on;
-            // 倒影同步：reflection 由 model.clone() 而来，含同名 light_off/light_on 网格，
-            // 不同步会导致主车亮灯而倒影车灯不亮（观感不自然）。
-            if (reflection) {
-              reflection.traverse(function (o) {
-                if (!o.isMesh) return;
-                var mm = Array.isArray(o.material) ? o.material[0] : o.material;
-                if (!mm || !mm.name) return;
-                if (mm.name === 'light_off') o.visible = !on;
-                if (mm.name === 'light_on') o.visible = on;
-              });
-            }
+            lightMeshes.forEach(function (o) { o.visible = !on; });
+            lightOnMeshes.forEach(function (o) { o.visible = on; });
+            if (reflection) reflection.traverse(function (o) {
+              if (o.userData.sourceMaterial === 'light_off') o.visible = !on;
+              if (o.userData.sourceMaterial === 'light_on') o.visible = on;
+            });
           }
-          function toggleLight() {
-            applyLight(!lightOn);
-          }
-          // 双击车模本体开关灯：两次 click 间隔 <300ms 且第二次命中车模本体即切换。
-          // Raycaster 只对 model 子树内可见网格求交；倒影 reflection / 水面 water 均为
-          // scene 级独立节点（不在 model 内），天然被排除。
-          var raycaster = new THREE.Raycaster();
-          var lastTapTime = 0;
-          function hitCar(clientX, clientY) {
-            if (!model) return false;
-            var rect = renderer.domElement.getBoundingClientRect();
-            var nx = ((clientX - rect.left) / rect.width) * 2 - 1;
-            var ny = -((clientY - rect.top) / rect.height) * 2 + 1;
-            raycaster.setFromCamera(new THREE.Vector2(nx, ny), camera);
-            var meshes = [];
-            model.traverse(function (o) { if (o.isMesh && o.visible) meshes.push(o); });
-            var hits = raycaster.intersectObjects(meshes, false);
-            return hits.length > 0;
-          }
-          renderer.domElement.addEventListener('click', function (ev) {
-            var now = performance.now();
-            if (now - lastTapTime < 300 && hitCar(ev.clientX, ev.clientY)) {
-              lastTapTime = 0;
-              toggleLight();
-              return;
-            }
-            lastTapTime = now;
-          });
-          applyLight(false);
-          carLightApply = applyLight; // 暴露给场景切换（场景4 自动开灯）
+          toggleCarLights = function () { applyLight(!lightOn); };
+          carLightApply = applyLight;
+          applyLight(currentSkyKey === 'night' || currentSkyKey === 'night2');
           if (debugEl) debugEl.textContent += ' | light=OK';
-        } else {
-          if (debugEl) debugEl.textContent += ' | light=MISS';
-        }
+        } else if (debugEl) debugEl.textContent += ' | light=MISS';
 
         resetTimer();
       setLyricSpritePose();
       }, undefined, function (err) {
+        openings.dispose();
+        carPaint.load(null);
         statusEl.textContent = '模型加载失败：' + (err && err.message ? err.message : '未知错误');
       });
 
@@ -1109,7 +1106,7 @@
         return tgt && sc.contains(tgt);
       }
       var drawerCloseBtn = document.getElementById('drawerCloseBtn');
-      var DRAWER_W_PX = window.innerWidth * 0.33; // 33vw
+      var DRAWER_W_PX = drawerEl ? drawerEl.offsetWidth : window.innerWidth * 0.33; // Match responsive CSS width
       var drawerRatio = 0;            // 当前展开比例 0..1（拖动跟手 / 动画进度）
       var drawerDrag = null;          // {startX, baseShift} 拖动状态
       var drawerAnim = null;          // {from, to, t0, dur} 收起/展开动画
@@ -1826,7 +1823,7 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
         sizeFreqCanvas();
         updateLyricPanelVisibility();
-        DRAWER_W_PX = window.innerWidth * 0.33; // 浮窗宽度随 vw 自适应
+        DRAWER_W_PX = drawerEl ? drawerEl.offsetWidth : window.innerWidth * 0.33; // Include the wider mobile settings panel
         applyDrawerTransform(); // 按新宽度重算浮窗位置（保持当前展开比例）
         if (model) computeHomePose(); // 屏幕尺寸变化时按新视口重算归位目标
       }
@@ -1836,6 +1833,7 @@
       // ---------- 渲染循环 ----------
       function animate() {
         requestAnimationFrame(animate);
+        openings.update(performance.now());
         drawFreq();
         pollLyricData();      // 轮询原生推送的歌词数据（内容变化才处理）
         pollLightData();      // 轮询原生推送的红绿灯数据（500ms 节流）

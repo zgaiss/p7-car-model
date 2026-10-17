@@ -22,3 +22,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# Model preparation Python cache
+__pycache__/
+*.pyc
