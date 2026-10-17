@@ -1,0 +1,32 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>P7 opening integration checks</title>
+<style>body{margin:0;background:#12171c;color:white;font:14px system-ui}header{padding:8px;display:flex;gap:8px;align-items:center}button{padding:8px}iframe{width:100%;height:calc(100vh - 100px);border:0}#result{white-space:pre-wrap;padding:8px}</style>
+<header><button id="run">Run integration checks</button><button id="open">Open all</button><button id="close">Close all</button><button id="rear">Rear view</button><button id="front">Front view</button><button id="mobile">Mobile layout</button><span id="ready">Waiting for model</span></header>
+<iframe id="app" src="../app/src/main/assets/index.html?qa=1"></iframe><div id="result"></div>
+<script>
+const frame=document.getElementById('app'), result=document.getElementById('result');
+const ids=['front_left','front_right','rear_left','rear_right','hood','trunk'];
+function qa(){return frame.contentWindow.__p7QA;}
+function check(value,message){if(!value)throw new Error(message);}
+async function waitForPose(q,value){const end=performance.now()+20000;while(performance.now()<end){if(ids.every(id=>q.openings.getState()[id].value===value))return;await new Promise(r=>setTimeout(r,100));}throw new Error('Pose timed out: '+value);}
+setInterval(()=>{document.getElementById('ready').textContent=qa()?'Model ready':'Waiting for model';},500);
+document.getElementById('open').onclick=()=>{ids.forEach(id=>qa().openings.set(id,true));};
+document.getElementById('close').onclick=()=>{ids.forEach(id=>qa().openings.set(id,false));};
+function view(z){const q=qa();q.camera.position.set(5,3,z);q.controls.target.set(0,0.8,0);q.controls.update();}
+document.getElementById('rear').onclick=()=>view(-6);
+document.getElementById('front').onclick=()=>view(6);
+document.getElementById('mobile').onclick=()=>{frame.style.width=frame.style.width?'':'390px';frame.style.height='760px';};
+document.getElementById('run').onclick=async()=>{
+ try{
+  const q=qa();check(q,'Model not loaded');const passed=[];
+  check(Object.keys(q.openings.getState()).length===6,'Six hinge groups required');passed.push('six named hinges loaded');
+  ids.forEach(id=>q.openings.set(id,true));await waitForPose(q,1);
+  ids.forEach(id=>{check(q.openings.getState()[id].value===1,id+' open');check(q.model.getObjectByName('opening_'+id).rotation.equals(q.reflection.getObjectByName('opening_'+id).rotation),id+' mirror');});passed.push('all six independent end poses and mirrored rotations');
+  q.setLights(true);let on=0,off=0;
+  [q.model,q.reflection].forEach(root=>root.traverse(o=>{if(o.userData.sourceMaterial==='light_on'){check(o.visible,'light_on visibility');on++;}if(o.userData.sourceMaterial==='light_off'){check(!o.visible,'light_off visibility');off++;}}));check(on&&off,'light duplicates found');q.setLights(false);passed.push('all split light duplicates synchronized in model and reflection');
+  const nonPaint=[];q.model.traverse(o=>{if(o.isMesh&&o.material.name!=='材质'&&o.material.color)nonPaint.push([o.material,o.material.color.clone()]);});
+  const previous=q.paint.getState();q.paint.setColor('#ad2638');check(q.paint.getState().color==='#ad2638','paint state');nonPaint.forEach(([m,c])=>check(m.color.equals(c),'non-paint unchanged'));if(previous.custom)q.paint.setColor(previous.color);else q.paint.reset();passed.push('paint controls preserve non-paint materials');
+  ids.forEach(id=>q.openings.set(id,false));await waitForPose(q,0);ids.forEach(id=>check(q.openings.getState()[id].value===0,id+' closed'));passed.push('all panels return exactly closed');
+  result.textContent='PASS: '+passed.join('\nPASS: ');
+ }catch(e){result.textContent='FAIL: '+e.message;}
+};
+</script></html>

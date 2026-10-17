@@ -1,0 +1,39 @@
+/* Scoped settings styles; no effect on the existing drawer or scene controls. */
+.carPaintSettings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 0 0 auto;
+  padding: 14px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.17);
+  color: rgba(255, 255, 255, 0.93);
+  font-size: clamp(12px, 1.2vw, 18px);
+}
+.carPaintTitle { font-size: 1.1em; letter-spacing: 0.08em; }
+.carPaintPresets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+.carPaintPreset, .carPaintReset {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 12px;
+  color: inherit;
+  background: rgba(20, 32, 48, 0.55);
+  font: inherit;
+  min-height: 44px;
+  cursor: pointer;
+  padding: 8px 4px;
+}
+.carPaintPreset { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 5px; }
+.carPaintPreset.active, .carPaintReset[aria-pressed="true"] {
+  border-color: #ffd98a;
+  color: #ffd98a;
+  background: rgba(255, 210, 120, 0.18);
+}
+.carPaintSwatch { width: 24px; height: 24px; border: 1px solid rgba(255, 255, 255, 0.5); border-radius: 50%; }
+.carPaintCustom { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.carPaintPicker { width: 56px; min-width: 44px; height: 44px; padding: 3px; border: 1px solid rgba(255,255,255,.3); background: transparent; border-radius: 9px; cursor: pointer; }
+.carPaintHex { width: 100px; max-width: 55%; min-width: 0; height: 44px; padding: 6px; border: 1px solid rgba(255,255,255,.3); border-radius: 9px; background: rgba(0,0,0,.2); color: inherit; font: inherit; user-select: text; -webkit-user-select: text; }
+.carPaintHex[aria-invalid="true"] { border-color: #ff8d8d; }
+.carPaintSettings button:focus-visible, .carPaintSettings input:focus-visible { outline: 2px solid #ffd98a; outline-offset: 2px; }
+.carPaintSettings button:disabled, .carPaintSettings input:disabled { opacity: 0.45; cursor: default; }
+.carPaintStatus { color: rgba(255,255,255,.7); font-size: 0.9em; line-height: 1.4; overflow-wrap: anywhere; }
+@media (max-width: 600px) { .carPaintPresets { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
