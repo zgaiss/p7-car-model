@@ -64,49 +64,33 @@
   #lightDot.red { background: #ff4d4f; box-shadow: 0 0 0.8vw rgba(255,77,79,0.7); }
   #lightDot.green { background: #52c41a; box-shadow: 0 0 0.8vw rgba(82,196,26,0.7); }
   #lightDot.yellow { background: #f5c518; box-shadow: 0 0 0.8vw rgba(245,197,24,0.7); }
-  /* Song metadata stays above the spectrum; readable at a glance. */
+  /* Compact metadata stays above the shared spectrum safe area. No card or animation. */
   #songMeta {
-    position: fixed;
-    right: max(24px, 2.4vw);
-    bottom: calc(20vh + 8px);
-    z-index: 30;
-    width: max-content;
-    max-width: min(42vw, 640px);
-    padding: 2px 0 2px 18px;
-    border-left: 2px solid rgba(193,208,216,.65);
-    text-align: left;
-    pointer-events: none;
-    font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans CJK SC", "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif;
-    text-shadow: 0 2px 5px rgba(0,0,0,.8);
+    position: fixed; right: max(24px, 2.4vw); bottom: var(--music-bottom, 118px);
+    z-index: 30; width: clamp(240px, 23.2vw, 340px); max-width: 38vw;
+    min-height: 66px; display: flex; align-items: center; gap: 13px;
+    pointer-events: none; text-align: left;
+    font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+    text-shadow: 0 1px 3px #0005;
   }
-  #songTitle {
-    font-size: clamp(22px, 3.5vh, 42px);
-    font-weight: 600;
-    line-height: 1.32;
-    letter-spacing: .01em;
-    color: #f3f1e9;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    overflow: hidden;
-    overflow-wrap: break-word;
-  }
-  #songArtist {
-    margin-top: 5px;
-    font-size: clamp(14px, 2.1vh, 24px);
-    font-weight: 400;
-    line-height: 1.45;
-    letter-spacing: .02em;
-    color: #bac6d0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  #songArtist:empty { display: none; }
+  #songVinyl { width: 62px; height: 62px; flex: none; border-radius: 50%; filter: drop-shadow(0 2px 3px #0003); }
+  #songWords { flex: 1; min-width: 0; }
+  #songTitle { font-size: clamp(18px, 3.5vh, 24px); font-weight: 600; line-height: 1.3;
+    letter-spacing: .01em; color: #f3f1e9; display: -webkit-box; -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+  #songArtist { margin-top: 4px; font-size: 14px; font-weight: 400; line-height: 1.45;
+    color: #bac6d0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #songArtist[hidden] { display: none; }
   @media (max-width: 520px) {
-    #songMeta { right: 20px; width: calc(100vw - 40px); max-width: none; padding-left: 12px; top: max(96px, 14vh); bottom: auto !important; text-align: left; }
-    #songTitle { font-size: clamp(20px, 3.2vh, 28px); }
-    #songArtist { font-size: 14px; margin-top: 6px; }
+    #songMeta { left: 20px; right: 20px; width: auto; max-width: none; top: max(96px, 14vh); bottom: auto !important; min-height: 66px; gap: 12px; }
+    #songVinyl { width: 52px; height: 52px; }
+    #songTitle { font-size: 20px; }
+  }
+  @media (min-width: 521px) and (max-height: 480px) {
+    #songMeta { min-height: 56px; gap: 10px; }
+    #songVinyl { width: 48px; height: 48px; }
+    #songTitle { font-size: 18px; }
+    #songArtist { font-size: 12px; }
   }
   #openingControls { position: fixed; right: 16px; top: max(16px, env(safe-area-inset-top)); z-index: 15; display: grid; grid-template-columns: repeat(2, minmax(76px, 1fr)); gap: 6px; padding: 8px; background: rgba(14,22,30,.72); border: 1px solid #ffffff24; border-radius: 14px; backdrop-filter: blur(12px); }
   #openingControls button { min-height: 42px; padding: 8px 10px; border-radius: 8px; border: 1px solid #ffffff30; background: #ffffff0a; color: #fff; font: 13px system-ui, sans-serif; cursor: pointer; }
@@ -339,9 +323,9 @@
   </div>
 
   <!-- 右下方歌曲信息（歌名 + 歌手，两行靠右，位于底部频谱条上方；初始隐藏，有歌词数据时显示） -->
-  <div id="songMeta" style="display:none;">
-    <div id="songTitle"></div>
-    <div id="songArtist"></div>
+  <div id="songMeta" aria-label="当前歌曲">
+    <img id="songVinyl" src="music-vinyl.svg" width="62" height="62" alt="" aria-hidden="true" draggable="false">
+    <div id="songWords"><div id="songTitle">未播放歌曲</div><div id="songArtist"></div></div>
   </div>
 
   <!-- 左侧滑出式设置浮窗（场景切换 + 灯光开关 + 频谱开关） -->
@@ -388,6 +372,7 @@
   <script src="car-reflection.js"></script>
   <script src="camera-home.js"></script>
   <script src="lyrics-display.js"></script>
+  <script src="song-metadata.js"></script>
   <script src="vendor/siriwave/siriwave.umd.js"></script>
   <script src="vendor/soundvisualizer/glow.js"></script>
   <script src="vendor/soundvisualizer/terrain.js"></script>
@@ -1406,7 +1391,7 @@
         if (!audioSpectrum) return;
         audioSpectrum.resize(window.innerWidth, Math.max(90, Math.min(168, window.innerHeight * .22)), window.devicePixelRatio);
         var meta = document.getElementById('songMeta');
-        if (meta) meta.style.bottom = Math.max(110, window.innerHeight * .184) + 'px';
+        if (meta) meta.style.setProperty('--music-bottom', Math.max(122, window.innerHeight * .184 + 12) + 'px');
       }
       function drawFreq() {
         if (!audioSpectrum || audioSpectrum.disposed) return;
@@ -1427,7 +1412,8 @@
       // 本模块每帧轮询该对象（覆盖式赋值无法监听属性变化，轮询最可靠），
       // 内容变化时解析 LRC 并按本地时钟逐行高亮滚动；无歌词时显示占位提示。
       var lyricPanel = null, lyricMeta = null, lyricBody = null, lyricPlaceholder = null;
-      var songMetaEl = null, songTitleEl = null, songArtistEl = null; // 右下方歌曲信息元素
+      var songMetaEl = null, songTitleEl = null, songArtistEl = null;
+      var songMetadata = null; // Independent of lyric parsing and playback clocks
       var lyricLines = [];        // 解析后的歌词行 [{t: 毫秒, text}]
       var lyricCurrent = -1;      // 当前高亮行索引
       var lyricStart = 0;         // 本段歌词的本地时钟起点（performance.now）
@@ -1442,9 +1428,8 @@
         songMetaEl = document.getElementById('songMeta');
         songTitleEl = document.getElementById('songTitle');
         songArtistEl = document.getElementById('songArtist');
-        if (songMetaEl) songMetaEl.style.display = 'block'; // 默认显示未播放占位
-        if (songTitleEl) songTitleEl.textContent = '未播放歌曲';
-        if (songArtistEl) songArtistEl.textContent = '';
+        songMetadata = P7SongMetadata.create({root: songMetaEl, title: songTitleEl, artist: songArtistEl});
+        songMetadata.update(null, Date.now());
         updateLyricPanelVisibility();
         createLyricSprite3D();
         drawLyricSprite3D(); // 初始化即绘制：无数据时显示"暂无歌词"占位
@@ -1555,14 +1540,6 @@
         if (lyricPlaceholder) lyricPlaceholder.style.display = 'flex';
         drawLyricSprite3D();
       }
-      /** 更新右上角歌曲信息（歌名 + 歌手）；无媒体时显示"未播放歌曲 / ----"占位 */
-      function updateSongMeta(d) {
-        if (!songMetaEl) return;
-        songMetaEl.style.display = 'block';
-        var hasMedia = !!(d && (d.song || d.artist));
-        if (songTitleEl) songTitleEl.textContent = hasMedia ? (d.song || '未知歌曲') : '未播放歌曲';
-        if (songArtistEl) songArtistEl.textContent = hasMedia && d.artist ? d.artist : '';
-      }
       /** 方案二：车机播放状态对齐（transact(18)）。2026-10-15 真机日志确认语义与早期假设相反：
        *  0=播放中（position 每秒+1）、1=暂停（position 冻结），其余非 0/1 值一律按暂停兜底。
        *  播放→暂停：冻结本地歌词时钟；暂停→播放：补回暂停时长继续滚动。
@@ -1592,7 +1569,6 @@
         if (fingerprint === lastLyricApplied) return;
         lastLyricApplied = fingerprint;
         if (lyricMeta) lyricMeta.textContent = (d.song ? d.song : '未知歌曲') + (d.artist ? ' - ' + d.artist : '');
-        updateSongMeta(d);
         if (!d.lyric || !d.lyric.trim()) {
           showLyricPlaceholder();
           return;
@@ -1661,6 +1637,7 @@
         lastLyricPoll = Date.now();
         try {
           var d = window.__lyricData;
+          if (songMetadata) songMetadata.update(d, Date.now());
           if (!d) return;
           // 播放状态变化优先处理（暂停/恢复立即对齐本地歌词时钟）
           if (typeof d.status === 'number' && d.status >= 0) {

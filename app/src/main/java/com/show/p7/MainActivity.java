@@ -689,7 +689,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** IMediaCenter.transact(19) 读当前媒体信息，返回 [title, artist]；无媒体/失败返回 null */
+    /** IMediaCenter.transact(19) 读当前媒体信息，返回 [title, artist, mediaId]；无媒体返回空数组，失败返回 null */
     private String[] fetchMediaInfo(IBinder mc) {
         Parcel data = Parcel.obtain();
         Parcel reply = Parcel.obtain();
@@ -699,13 +699,13 @@ public class MainActivity extends Activity {
             boolean ok = mc.transact(T_GET_CURRENT_MEDIA_INFO, data, reply, 0);
             if (!ok) return null;
             reply.readException();
-            if (reply.readInt() == 0) return null; // has
-            reply.readString(); // mediaId
+            if (reply.readInt() == 0) return new String[0]; // Explicit no-media result
+            String mediaId = reply.readString(); // Existing field; do not guess additional Parcel fields
             String title = reply.readString();
             String album = reply.readString();
             String artist = reply.readString();
             // 后续字段（时长/位置/比特率等）不依赖，不读取
-            return new String[]{title == null ? "" : title, artist == null ? "" : artist};
+            return new String[]{title == null ? "" : title, artist == null ? "" : artist, mediaId == null ? "" : mediaId};
         } catch (Exception e) {
             Log.w(TAG, "Lyric: media info failed: " + e.getMessage());
             return null;
@@ -820,8 +820,11 @@ public class MainActivity extends Activity {
                 }
                 IBinder mc = mediaCenterBinder;
                 String[] media = fetchMediaInfo(mc);
-                String song = (media != null) ? media[0] : "";
-                String artist = (media != null) ? media[1] : "";
+                boolean hasMedia = media != null && media.length >= 3;
+                String song = hasMedia ? media[0] : "";
+                String artist = hasMedia ? media[1] : "";
+                String mediaId = hasMedia ? media[2] : "";
+                String mediaState = media == null ? "error" : (hasMedia ? "available" : "empty");
                 String lyric = fetchLyric(mc);
                 long pos = fetchPosition(mc); // 当前播放位置（毫秒），失败为 -1
                 int status = fetchPlayStatus(mc); // 播放状态（transact(18) 原始值），失败为 -1
@@ -841,7 +844,7 @@ public class MainActivity extends Activity {
                     lastLyricPos = pos;
                     if (status >= 0) lastPlayStatus = status;
                     lastLyricPushMs = nowMs;
-                    pushLyricToJs(song, artist, lyric, pos, status);
+                    pushLyricToJs(song, artist, lyric, pos, status, mediaId, mediaState);
                 }
                 Thread.sleep(LYRIC_POLL_INTERVAL_MS);
             } catch (InterruptedException ie) {
@@ -885,11 +888,13 @@ public class MainActivity extends Activity {
     }
 
     /** UI 线程推送 window.__lyricData = {song, artist, lyric, pos, status, ts}；无歌词时 lyric 为 null（前端显示占位）；pos 为毫秒播放位置，无则 -1；status 为播放状态原始值，无则 -1 */
-    private void pushLyricToJs(final String song, final String artist, final String lyric, final long pos, final int status) {
+    private void pushLyricToJs(final String song, final String artist, final String lyric, final long pos, final int status, final String mediaId, final String mediaState) {
         final WebView wv = webView;
         if (wv == null) return;
         final String js = "window.__lyricData={song:" + jsString(song == null ? "" : song)
                 + ",artist:" + jsString(artist == null ? "" : artist)
+                + ",mediaId:" + jsString(mediaId == null ? "" : mediaId)
+                + ",mediaState:" + jsString(mediaState)
                 + ",lyric:" + (lyric == null ? "null" : jsString(lyric))
                 + ",pos:" + pos
                 + ",status:" + status
