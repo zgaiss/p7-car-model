@@ -1,0 +1,9 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>歌词排版预览 · 原创示例数据</title><style>
+*{box-sizing:border-box}body{margin:0;background:#111820;color:#dae2e7;font:13px system-ui,sans-serif}header{height:48px;display:flex;align-items:center;gap:8px;padding:8px 16px}button{padding:6px 12px;border:1px solid #697780;background:#24313b;color:#fff;border-radius:6px;cursor:pointer}iframe{display:block;width:100%;height:calc(100vh - 48px);border:0;margin:auto}body.narrow iframe{width:390px;height:700px}small{margin-left:auto;color:#c4cbd0}
+</style><header><b>原创示例 · 非车机实播</b><button data-mode="normal">默认</button><button data-mode="long">长歌名 / 长句</button><button data-mode="empty">无歌词</button><button data-mode="idle">未播放</button><button id="width">窄屏切换</button><small id="result"></small></header><iframe src="../app/src/main/assets/index.html" title="P7 SHOW 实际页面"></iframe><script>
+const frame=document.querySelector('iframe');let mode='normal';
+const samples={normal:{song:'沿途的微光',artist:'P7 排版预览 · 原创示例',lyric:'[00:00.00]晚风掠过安静的街口\n[00:01.00]让微光陪我们慢慢向前\n[99:00.00]下一站还有晴朗的天空'},long:{song:'沿着城市尽头的微光，驶向每一个尚未抵达的明天 · 原创长标题示例',artist:'P7 排版预览 / Original Typography Study',lyric:'[00:00.00]把沿途的风景留给远方\n[00:01.00]当城市的灯火慢慢亮起，我们沿着安静的道路驶向明天，把每一份温柔的期待都带在身旁\n[99:00.00]The quiet road carries every little hope toward tomorrow'},empty:{song:'沿途的微光',artist:'P7 排版预览 · 原创示例',lyric:''},idle:{song:'',artist:'',lyric:''}};
+function apply(){frame.contentWindow.__lyricData={...samples[mode],status:0,pos:1500,ts:Date.now()};document.querySelector('#result').textContent=mode;}
+frame.onload=apply;document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{mode=b.dataset.mode;apply()});document.querySelector('#width').onclick=()=>{document.body.classList.toggle('narrow')};
+setInterval(apply,1000);
+</script></html>

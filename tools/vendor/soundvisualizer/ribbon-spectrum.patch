@@ -1,0 +1,46 @@
+--- upstream/ribbon.js
++++ adapted/ribbon-spectrum.js
+@@ -5,6 +5,9 @@
+  * SPDX-License-Identifier: MIT
+  */
+ 'use strict';
++// P7 adaptation: spectrum-history artwork, not PCM or a reconstructed waveform.
++// getSpectrumCurve(n): finite Float32 values in [-1, 1], ordered log-frequency.
++// spectrumRevision changes only when a fresh native FFT packet arrives.
+ /* Şerit: dalga formunun geçmişi. Her karede o anki dalga kaydedilir, eski
+    dalgalar yukarı kayarak solar — perspektifli bir "kâğıt şerit" hissi verir.
+ 
+@@ -20,7 +23,7 @@
+       this.ctx = canvas.getContext('2d');
+       this.glow = new window.SVGlow();
+       this.hist = [];
+-      this.acc = 0;
++      this.lastSpectrumRevision = null;
+     }
+     resize() {}
+ 
+@@ -31,19 +34,19 @@
+       const v = cfg.visualizer;
+       ctx.clearRect(0, 0, W, H);
+ 
+-      const data = audio.timeBytes;
++      const data = audio.getSpectrumCurve(POINTS);
+       if (!data) return;
+ 
+       // Yeni dalgayı sabit aralıklarla ekle (kare hızından bağımsız akış)
+-      this.acc += (dt || 0.016) * 46;
+-      if (this.acc >= 1) {
+-        this.acc -= Math.floor(this.acc);
++      if (audio.spectrumRevision !== this.lastSpectrumRevision) {
++        this.lastSpectrumRevision = audio.spectrumRevision;
+         // Düşecek en eski satırın dizisi yenisine (kare başına ayırma yok)
+         const old = this.hist.length >= LAYERS ? this.hist.pop() : null;
+         const row = old && old.length === POINTS ? old : new Float32Array(POINTS);
+         const step = data.length / POINTS;
+         for (let i = 0; i < POINTS; i++) {
+-          row[i] = (data[Math.min(data.length - 1, (i * step) | 0)] - 128) / 128;
++          const value = data[Math.min(data.length - 1, (i * step) | 0)];
++          row[i] = Number.isFinite(value) ? Math.max(-1, Math.min(1, value)) : 0;
+         }
+         this.hist.unshift(row);
+         if (this.hist.length > LAYERS) this.hist.length = LAYERS;

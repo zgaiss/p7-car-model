@@ -832,7 +832,9 @@ public class MainActivity extends Activity {
                 boolean lyricChanged = !key.equals(lastLyricKey);
                 long nowMs = System.currentTimeMillis();
                 boolean posDrifted = (pos >= 0) && (Math.abs(pos - lastLyricPos) >= 1000L);
-                boolean timeElapsed = (pos >= 0) && (nowMs - lastLyricPushMs >= 1000L);
+                // Position may be unavailable while playback status remains valid. Keep
+                // the media heartbeat independent of position so JS can detect stale status.
+                boolean timeElapsed = (nowMs - lastLyricPushMs >= 1000L);
                 boolean statusChanged = (status >= 0) && (status != lastPlayStatus);
                 if (lyricChanged || posDrifted || timeElapsed || statusChanged) {
                     lastLyricKey = key;

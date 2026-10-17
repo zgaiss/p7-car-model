@@ -64,37 +64,49 @@
   #lightDot.red { background: #ff4d4f; box-shadow: 0 0 0.8vw rgba(255,77,79,0.7); }
   #lightDot.green { background: #52c41a; box-shadow: 0 0 0.8vw rgba(82,196,26,0.7); }
   #lightDot.yellow { background: #f5c518; box-shadow: 0 0 0.8vw rgba(245,197,24,0.7); }
-  /* 右上角歌曲信息（歌名大号 + 歌手小号，两行靠右）：只读展示，不拦截 3D 交互 */
+  /* Song metadata stays above the spectrum; readable at a glance. */
   #songMeta {
     position: fixed;
-    right: 1.5vw;
-    bottom: calc(20vh + 8px); /* 右下方：底部频谱条（约 1/5 屏高）上方，实际位置由 sizeFreqCanvas 同步 */
+    right: max(24px, 2.4vw);
+    bottom: calc(20vh + 8px);
     z-index: 30;
-    text-align: right;
+    width: max-content;
+    max-width: min(42vw, 640px);
+    padding: 2px 0 2px 18px;
+    border-left: 2px solid rgba(193,208,216,.65);
+    text-align: left;
     pointer-events: none;
-    -webkit-user-select: none;
-    user-select: none;
-    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
-    line-height: 1.25;
+    font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans CJK SC", "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif;
+    text-shadow: 0 2px 5px rgba(0,0,0,.8);
   }
   #songTitle {
-    font-size: 3.6vh; /* 以屏幕纵向为基准：全屏/分屏高度一致，字号不随分屏宽度变化 */
+    font-size: clamp(22px, 3.5vh, 42px);
     font-weight: 600;
-    color: #ffffff;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.9), 0 0 3px rgba(0,0,0,0.8), 1px 1px 2px rgba(0,0,0,0.9), -1px -1px 2px rgba(0,0,0,0.9);
-    white-space: nowrap;
+    line-height: 1.32;
+    letter-spacing: .01em;
+    color: #f3f1e9;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
     overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 60vw;
+    overflow-wrap: break-word;
   }
   #songArtist {
-    font-size: 2.2vh; /* 以屏幕纵向为基准，与歌名同口径 */
-    color: rgba(255,255,255,0.78);
-    text-shadow: 0 1px 2px rgba(0,0,0,0.9), 0 0 3px rgba(0,0,0,0.8), 1px 1px 2px rgba(0,0,0,0.9), -1px -1px 2px rgba(0,0,0,0.9);
+    margin-top: 5px;
+    font-size: clamp(14px, 2.1vh, 24px);
+    font-weight: 400;
+    line-height: 1.45;
+    letter-spacing: .02em;
+    color: #bac6d0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 40vw;
+  }
+  #songArtist:empty { display: none; }
+  @media (max-width: 520px) {
+    #songMeta { right: 20px; width: calc(100vw - 40px); max-width: none; padding-left: 12px; top: max(96px, 14vh); bottom: auto !important; text-align: left; }
+    #songTitle { font-size: clamp(20px, 3.2vh, 28px); }
+    #songArtist { font-size: 14px; margin-top: 6px; }
   }
   #openingControls { position: fixed; right: 16px; top: max(16px, env(safe-area-inset-top)); z-index: 15; display: grid; grid-template-columns: repeat(2, minmax(76px, 1fr)); gap: 6px; padding: 8px; background: rgba(14,22,30,.72); border: 1px solid #ffffff24; border-radius: 14px; backdrop-filter: blur(12px); }
   #openingControls button { min-height: 42px; padding: 8px 10px; border-radius: 8px; border: 1px solid #ffffff30; background: #ffffff0a; color: #fff; font: 13px system-ui, sans-serif; cursor: pointer; }
@@ -283,6 +295,24 @@
     font-size: 0.92vw;
     color: #ffffff;
   }
+  /* Narrow screens cannot contain the world-space lyric plane. Use the same
+     timed text in a compact, non-interactive reading area above the car. */
+  @media (max-width: 520px) {
+    #lyricPanel { left: 20px; right: 20px; top: max(196px, calc(14vh + 100px)) !important; width: auto; height: 78px; padding: 0; text-shadow: 0 2px 5px rgba(0,0,0,.8); font-family: system-ui, "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; }
+    #lyricMeta { display: none; }
+    #lyricBody { height: 100%; overflow: hidden; mask-image: none; -webkit-mask-image: none; }
+    .lyric-line { display: none !important; font-size: 22px; line-height: 1.45; color: #bac6d0; font-weight: 400; }
+    .lyric-line.focus { display: -webkit-box !important; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+    .lyric-line.active { color: #f3f1e9; font-weight: 600; text-shadow: inherit; }
+    #lyricPlaceholder { justify-content: flex-start; align-items: flex-start; font-size: 18px; color: #aab4be; }
+  }
+  body[data-music-tone="day"] #songMeta { border-color: #42586799; text-shadow: 0 1px 2px #ffffff55; }
+  body[data-music-tone="day"] #songTitle,
+  body[data-music-tone="day"] .lyric-line.active { color: #223541; }
+  body[data-music-tone="day"] #songArtist,
+  body[data-music-tone="day"] .lyric-line,
+  body[data-music-tone="day"] #lyricPlaceholder { color: #425867; }
+  body[data-music-tone="day"] #lyricPanel { text-shadow: 0 1px 2px #ffffff55; }
   @media (max-width: 600px) {
     #drawer { width: min(90vw, 360px); padding-left: 18px; padding-right: 18px; gap: 12px; }
     #drawerTitle { font-size: 20px; min-height: 44px; display: flex; align-items: center; }
@@ -326,7 +356,11 @@
       <button id="drawerCustomViewBtn" class="skyBtn">使用自定义视角</button>
       <button id="drawerSaveViewBtn" class="skyBtn">保存当前视角</button>
       <div id="cameraViewStatus" role="status" style="font-size:13px;line-height:1.5;padding:8px 0;color:#ddd;">拖动到喜欢的角度，再保存</div>
-      <button id="drawerSpectrumBtn" class="skyBtn">频谱：开</button>
+      <button id="drawerSpectrumBtn" class="skyBtn" aria-pressed="true">频谱：开</button>
+      <label for="spectrumStyle" style="display:block;margin:12px 0 6px;color:#c7d5df;font-size:13px">频谱样式</label>
+      <select id="spectrumStyle" aria-label="频谱样式" style="width:100%;padding:12px;border-radius:10px;border:1px solid #526473;background:#19232d;color:#eff5fa;font-size:15px">
+        <option value="bands">彩色波带</option><option value="ribbon">渐变丝带</option><option value="terrain">多层山脊</option><option value="led">彩色柱状</option>
+      </select>
       <button id="drawerLightTrafficBtn" class="skyBtn">红绿灯倒计时：未激活</button>
       <!-- 微信扫码绑定激活二维码展示区（默认隐藏；点击红绿灯按钮后显示） -->
       <div id="lightQrBox" style="display:none;">
@@ -353,6 +387,14 @@
   <script src="car-paint.js"></script>
   <script src="car-reflection.js"></script>
   <script src="camera-home.js"></script>
+  <script src="lyrics-display.js"></script>
+  <script src="vendor/siriwave/siriwave.umd.js"></script>
+  <script src="vendor/soundvisualizer/glow.js"></script>
+  <script src="vendor/soundvisualizer/terrain.js"></script>
+  <script src="vendor/soundvisualizer/ribbon.js"></script>
+  <script src="vendor/wave/cubes-2.0.5.js"></script>
+  <script src="audio-spectrum-state.js"></script>
+  <script src="audio-spectrum.js"></script>
   <script>
     (function () {
       'use strict';
@@ -1334,128 +1376,51 @@
         } catch (e) { /* 解析失败不阻塞 3D 渲染 */ }
       }
 
-      // ---------- 底部音频频谱（麦克风触发 + 正弦波常态，64 柱） ----------
-      // 数据链路：Android 原生层 MicCapture（AudioRecord MIC → FFT → 30Hz~10kHz 对数 64 bin
-      //   → per-bin 峰值归一化）经 evaluateJavascript 写入 window.__audioFreq（0~1 数组，bins[0]=低频）。
-      // drawFreq 每帧读取：存在有效能量 → 按频率高到低排列驱动柱条（柱 0 = 高频端）；
-      //   静音 / 无数据 → 回落为正弦波常态波动（柔和波浪基线，非静止）。
-      var freqCanvas = null, freqCtx = null;
-      var spectrumOn = true;       // 频谱开关：默认开启（关闭时 drawFreq 仅清空画布，不绘制柱条）
-      var prevHeights = null;      // 上一帧柱高（用于平滑过渡渐变）
+      // Four MIT visualizers, one existing app RAF, native 64-bin data only.
+      var freqCanvas = null, audioSpectrum = null, spectrumStorage = null;
+      try { spectrumStorage = window.localStorage; } catch (_) {}
+      var spectrumSettings = P7SpectrumState.readSettings(spectrumStorage);
       function initAudioSpectrum() {
-        // 无条件创建 Canvas：保证频谱容器永远存在
-        try {
-          if (!freqCanvas) {
-            freqCanvas = document.createElement('canvas');
-            freqCanvas.id = 'freqCanvas';
-            document.body.appendChild(freqCanvas);
-            freqCtx = freqCanvas.getContext('2d');
-            sizeFreqCanvas();
-          }
-        } catch (e) { /* 兜底失败不影响车模 */ }
-        // 频谱开关：默认开，点击切换 spectrumOn 并更新文案（关闭时 drawFreq 清空画布不绘制柱条）
-        var spectrumBtn = document.getElementById('drawerSpectrumBtn');
-        if (spectrumBtn) {
-          spectrumBtn.addEventListener('click', function () {
-            spectrumOn = !spectrumOn;
-            spectrumBtn.textContent = spectrumOn ? '频谱：开' : '频谱：关';
-            spectrumBtn.classList.toggle('on', spectrumOn);
-          });
+        freqCanvas = document.createElement('canvas');
+        freqCanvas.id = 'freqCanvas'; freqCanvas.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(freqCanvas);
+        audioSpectrum = new P7AudioSpectrum(freqCanvas, spectrumSettings);
+        sizeFreqCanvas();
+        var btn = document.getElementById('drawerSpectrumBtn');
+        var select = document.getElementById('spectrumStyle');
+        function syncSettings() {
+          btn.textContent = spectrumSettings.enabled ? '频谱：开' : '频谱：关';
+          btn.classList.toggle('on', spectrumSettings.enabled);
+          btn.setAttribute('aria-pressed', String(spectrumSettings.enabled));
+          select.value = spectrumSettings.style;
+          P7SpectrumState.writeSettings(spectrumStorage, spectrumSettings);
         }
+        btn.addEventListener('click', function () { spectrumSettings.enabled = !spectrumSettings.enabled; window.__audioFreq = null; audioSpectrum.reset(); syncSettings(); });
+        select.addEventListener('change', function () {
+          if (P7SpectrumState.styles.indexOf(select.value) < 0) return;
+          spectrumSettings.style = select.value; audioSpectrum.setStyle(select.value); syncSettings();
+        });
+        syncSettings();
       }
       function sizeFreqCanvas() {
-        if (!freqCanvas) return;
-        var dpr = Math.min(window.devicePixelRatio || 1, 2);
-        var w = window.innerWidth;
-        var h = Math.max(40, Math.round(window.innerHeight / 5)); // 屏幕高度的五分之一
-        freqCanvas.style.width = w + 'px';
-        freqCanvas.style.height = h + 'px';
-        freqCanvas.width = Math.max(1, Math.round(w * dpr));
-        freqCanvas.height = Math.max(1, Math.round(h * dpr));
-        if (freqCtx) freqCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        // 同步歌名/歌手：歌手行顶端对齐正弦波峰值柱顶（target 0.8 → 柱高 ≈ 0.81×频谱高），
-        // 间距与字体均以纵向为基准，保证全屏/分屏观感一致
+        if (!audioSpectrum) return;
+        audioSpectrum.resize(window.innerWidth, Math.max(90, Math.min(168, window.innerHeight * .22)), window.devicePixelRatio);
         var meta = document.getElementById('songMeta');
-        if (meta) {
-          var peakTop = Math.round(h * 0.81); // 峰值柱顶距屏幕底的高度
-          var artistLineH = Math.round(window.innerHeight * 0.022 * 1.25); // 2.2vh × line-height 1.25
-          meta.style.bottom = Math.max(4, peakTop + artistLineH) + 'px';
-        }
+        if (meta) meta.style.bottom = Math.max(110, window.innerHeight * .184) + 'px';
       }
       function drawFreq() {
-        if (!freqCanvas || !freqCtx) return;
-        var ctx = freqCtx;
-        var W = window.innerWidth;
-        var H = Math.max(40, Math.round(window.innerHeight / 5));
-        ctx.clearRect(0, 0, W, H);
-        if (!spectrumOn) return; // 频谱开关关闭：保留透明占位，不绘制柱条
-        var N = 64; // 柱条数量
-        var bw = W / N;
-        var now = performance.now();
-
-        // 1) 麦克风数据源：window.__audioFreq（原生层推 0~1 数组；静音推全 0，不伪造数据）
-        var mic = window.__audioFreq;
-        var micActive = false;
-        if (mic && mic.length === N) {
-          for (var k = 0; k < N; k++) {
-            if (mic[k] > 0.02) { micActive = true; break; }
-          }
-        }
-
-        // 2) 目标柱高：麦克风有能量 → 按频率高到低排列（柱 0 = 高频端 bins[N-1-i]），
-        //    叠加全局波浪与组间错峰保留节奏感；无能量 / 静音 → 正弦波常态波动。
-        var targets = new Array(N);
-        var wavePeriod = 1500; // ms，常态波浪周期
-        var waveBase = 2 * Math.PI * (now % wavePeriod) / wavePeriod; // 0~2π 全局相位
-        var waveGroups = 8;                 // 64 柱分 8 组，每组相位依次错开
-        var waveGroupSpan = N / waveGroups; // 每组 8 根柱
-        var groupPhase = 0;
-        if (micActive) {
-          for (var i = 0; i < N; i++) {
-            var raw = mic[N - 1 - i]; // 频率高到低：柱 0 取最高频 bin(63)
-            if (raw < 0) raw = 0; if (raw > 1) raw = 1;
-            groupPhase = Math.floor(i / waveGroupSpan) * (2 * Math.PI / waveGroups); // 组间相位依次偏移
-            var wave = 0.75 + 0.25 * (0.5 + 0.5 * Math.sin(waveBase + groupPhase)); // 0.75~1.0 组波
-            var t = raw * wave;
-            if (t > 1) t = 1;
-            targets[i] = t;
-          }
-        } else if (cartPlaying) {
-          // 车机播放中：正弦波常态波动，峰 80% / 谷 20%
-          for (var i = 0; i < N; i++) {
-            groupPhase = Math.floor(i / waveGroupSpan) * (2 * Math.PI / waveGroups);
-            targets[i] = 0.2 + 0.6 * (0.5 + 0.5 * Math.sin(waveBase + groupPhase));
-          }
-        } else {
-          // 未播放：静止基线（无波动），麦克风输入不受播放门控影响
-          for (var i = 0; i < N; i++) {
-            targets[i] = 0.1;
-          }
-        }
-
-        // 3) 平滑过渡绘制：上升快跟（attack 敏捷）、下降缓落（decay 拖尾），峰值衰减观感
-        var hmax = Math.max(4, Math.round(H * 0.98));
-        var baseH = Math.max(1, Math.round(H * 0.02)); // 极矮基线：常态/静音时仍可见
-        if (!prevHeights) { prevHeights = new Array(N).fill(0); }
-        for (var i = 0; i < N; i++) {
-          var target = targets[i];
-          var v = prevHeights[i];
-          if (target > v) { v = v * 0.72 + target * 0.28; }
-          else { v = v * 0.90 + target * 0.10; }
-          if (Math.abs(v - prevHeights[i]) < 0.003) { v = target; } // 已收敛则直接到位
-          prevHeights[i] = v;
-          var h = Math.max(baseH, Math.round(Math.pow(v, 0.85) * hmax)); // 幂次 0.85：矮柱提亮，全段错落更明显
-          var x = i * bw + bw * 0.08;
-          var w = bw * 0.84;
-          var y = H - h - 2;
-          ctx.fillStyle = 'rgba(255,255,255,' + (0.16 + v * 0.34).toFixed(2) + ')';
-          ctx.fillRect(x, y, w, h);
-          if (v > 0.55) {
-            ctx.fillStyle = 'rgba(255,255,255,' + (0.3 + v * 0.45).toFixed(2) + ')';
-            ctx.fillRect(x, y, w, Math.min(2, h));
-          }
-        }
+        if (!audioSpectrum || audioSpectrum.disposed) return;
+        if (document.hidden) { audioSpectrum.reset(); return; }
+        audioSpectrum.update(performance.now(), window.__audioFreq, window.__lyricData, spectrumSettings.enabled);
+        audioSpectrum.draw(currentSkyKey === 'daylight');
       }
+      window.addEventListener('pagehide', function(event) {
+        if (!audioSpectrum) return;
+        if (event.persisted) audioSpectrum.reset(); else audioSpectrum.dispose();
+      });
+      document.addEventListener('visibilitychange', function() {
+        if (audioSpectrum && !audioSpectrum.disposed) { audioSpectrum.reset(); window.__audioFreq = null; }
+      });
 
       // ---------- 右侧歌词面板（Android 原生层推送 LRC，横屏显示） ----------
       // 数据链路：原生层 evaluateJavascript 写入 window.__lyricData = {song, artist, lyric, ts}；
@@ -1479,7 +1444,7 @@
         songArtistEl = document.getElementById('songArtist');
         if (songMetaEl) songMetaEl.style.display = 'block'; // 默认显示未播放占位
         if (songTitleEl) songTitleEl.textContent = '未播放歌曲';
-        if (songArtistEl) songArtistEl.textContent = '----';
+        if (songArtistEl) songArtistEl.textContent = '';
         updateLyricPanelVisibility();
         createLyricSprite3D();
         drawLyricSprite3D(); // 初始化即绘制：无数据时显示"暂无歌词"占位
@@ -1490,7 +1455,7 @@
         var lines = String(text).split(/\r?\n/);
         for (var i = 0; i < lines.length; i++) {
           var line = lines[i].trim();
-          if (!line) continue;
+          if (!line || /^\[(?:ar|ti|al|by|offset|length|re|ve):[^\]]*\]$/i.test(line)) continue;
           var re = /\[(\d{1,2}):(\d{1,3})(?:[.:](\d{1,3}))?\]/g;
           var m, last = 0, tags = [];
           while ((m = re.exec(line)) !== null) {
@@ -1551,117 +1516,9 @@
         lyricSprite3D.position.set(c.x - lyrOff * Math.sin(lyrAng), c.y + sz.y * 0.82, c.z - lyrOff * Math.cos(lyrAng));
       }
       function drawLyricSprite3D() {
-        // v7：3D Sprite 车后歌词层（字体为 v4 原尺寸的 40%，位置抬高）；超长单句按 canvas 宽度自动换行
         if (!lyricCtx3D || !lyricSprite3D) return;
-        var ctx = lyricCtx3D;
-        var W = LYRIC_CANVAS_W, H = LYRIC_CANVAS_H;
-        ctx.clearRect(0, 0, W, H);
-        if (!lyricLines.length) {
-          ctx.globalAlpha = 0.7;
-          ctx.font = '300 ' + Math.round(H * 0.048) + 'px "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillStyle = '#ffffff';
-          ctx.fillText('暂无歌词', W / 2, H / 2);
-          ctx.globalAlpha = 1;
-          lyricSprite3D.visible = true;
-          if (lyricTex3D) lyricTex3D.needsUpdate = true;
-          return;
-        }
+        P7LyricsDisplay.draw(lyricCtx3D, LYRIC_CANVAS_W, LYRIC_CANVAS_H, lyricLines, lyricCurrent, currentSkyKey === 'daylight');
         lyricSprite3D.visible = true;
-        var n = lyricLines.length;
-        var idx = lyricCurrent >= 0 ? lyricCurrent : -1;
-        var start, count;
-        if (idx < 0) { start = 0; count = Math.min(5, n); }
-        else { start = Math.max(0, idx - 2); count = Math.min(5, n - start); }
-        var rowH0 = H * 0.12;
-        var baseY = H * 0.07;
-        var fontActive0 = Math.round(H * 0.1);
-        var fontNormal0 = Math.round(H * 0.08);
-        var fontFamily = '"Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif';
-        // 简约高级：细字重（300/500）、宽字距（letterSpacing）、柔和投影（shadow）
-        if (typeof ctx.letterSpacing === 'string') ctx.letterSpacing = Math.round(fontNormal0 * 0.22) + 'px';
-        // 超长单句换行：按 canvas 宽度 measureText 逐字折行，单句最多 2 行，超出以省略号收尾
-        function wrapLyricText(text, maxWidth, maxLines) {
-          if (!text) return [''];
-          if (ctx.measureText(text).width <= maxWidth) return [text];
-          var lines = [];
-          var cur = '';
-          for (var ci = 0; ci < text.length; ci++) {
-            var ch = text.charAt(ci);
-            var test = cur + ch;
-            if (cur.length > 0 && ctx.measureText(test).width > maxWidth) {
-              lines.push(cur);
-              cur = ch;
-              if (lines.length >= maxLines) break;
-            } else {
-              cur = test;
-            }
-          }
-          if (lines.length < maxLines && cur.length > 0) lines.push(cur);
-          // 末行仍超宽：省略号截断
-          if (lines.length) {
-            var lastIdx = lines.length - 1;
-            var last = lines[lastIdx];
-            if (ctx.measureText(last).width > maxWidth) {
-              while (last.length > 0 && ctx.measureText(last + '…').width > maxWidth) last = last.slice(0, -1);
-              lines[lastIdx] = last + '…';
-            }
-          }
-          return lines;
-        }
-        // 预排：统计换行后的总行数，动态压缩行高保证全部可见
-        var mw = W * 0.94;
-        var wrapped = [];
-        var totalRows = 0;
-        for (var i = 0; i < count; i++) {
-          var li = start + i;
-          var text = lyricLines[li] ? lyricLines[li].text : '';
-          var isActive = (li === idx);
-          ctx.font = (isActive ? '500 ' : '300 ') + (isActive ? fontActive0 : fontNormal0) + 'px ' + fontFamily;
-          var lines = wrapLyricText(text, mw, 2);
-          wrapped.push({ li: li, isActive: isActive, lines: lines });
-          totalRows += lines.length;
-        }
-        var availH = H - baseY - H * 0.05; // 底部预留 5% 边距
-        var rowH = Math.min(rowH0, availH / Math.max(1, totalRows));
-        var fontActive = Math.max(14, Math.min(fontActive0, Math.round(rowH * 0.72)));
-        var fontNormal = Math.max(12, Math.min(fontNormal0, Math.round(rowH * 0.58)));
-        // 正式绘制：按换行后的行逐行输出（居中；当前句白亮 + 阴影，普通句半透明）
-        var rowIdx = 0;
-        for (var i = 0; i < count; i++) {
-          var item = wrapped[i];
-          var edge = Math.min(i, count - 1 - i);
-          ctx.globalAlpha = item.isActive ? 1 : (0.42 * (1 - edge * 0.22));
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          for (var j = 0; j < item.lines.length; j++) {
-            var lText = item.lines[j];
-            ctx.font = (item.isActive ? '500 ' : '300 ') + (item.isActive ? fontActive : fontNormal) + 'px ' + fontFamily;
-            var lY = baseY + (rowIdx + 0.5) * rowH;
-            if (item.isActive) {
-              // 当前句：纯白 + 柔和投影（无粗黑描边，改用阴影制造层次）
-              ctx.save();
-              ctx.shadowColor = 'rgba(0,0,0,0.65)';
-              ctx.shadowBlur = fontActive * 0.55;
-              ctx.shadowOffsetY = fontActive * 0.06;
-              ctx.fillStyle = '#ffffff';
-              ctx.fillText(lText, W / 2, lY);
-              ctx.restore();
-            } else {
-              // 普通句：半透明白 + 深色柔和投影，保证浅色/深色背景均可读
-              ctx.save();
-              ctx.shadowColor = 'rgba(0,0,0,0.6)';
-              ctx.shadowBlur = fontNormal * 0.5;
-              ctx.shadowOffsetY = fontNormal * 0.05;
-              ctx.fillStyle = 'rgba(255,255,255,0.92)';
-              ctx.fillText(lText, W / 2, lY);
-              ctx.restore();
-            }
-            rowIdx++;
-          }
-        }
-        ctx.globalAlpha = 1;
         if (lyricTex3D) lyricTex3D.needsUpdate = true;
       }
       function renderLyricLines() {
@@ -1674,6 +1531,7 @@
           lyricBody.appendChild(div);
         }
         lyricCurrent = -1;
+        applyHighlight(-1);
       }
       function applyHighlight(idx) {
         var children = lyricBody.children;
@@ -1683,6 +1541,7 @@
           var on = (idx < 0) ? (i < 5) : (i >= idx - 2 && i <= idx + 2);
           children[i].style.display = on ? '' : 'none';
           children[i].classList.toggle('active', i === idx);
+          children[i].classList.toggle('focus', i === (idx < 0 ? 0 : idx));
         }
         if (idx >= 0 && children[idx]) {
           var el = children[idx];
@@ -1701,8 +1560,8 @@
         if (!songMetaEl) return;
         songMetaEl.style.display = 'block';
         var hasMedia = !!(d && (d.song || d.artist));
-        if (songTitleEl) songTitleEl.textContent = hasMedia && d.song ? d.song : '未播放歌曲';
-        if (songArtistEl) songArtistEl.textContent = hasMedia && d.artist ? d.artist : '----';
+        if (songTitleEl) songTitleEl.textContent = hasMedia ? (d.song || '未知歌曲') : '未播放歌曲';
+        if (songArtistEl) songArtistEl.textContent = hasMedia && d.artist ? d.artist : '';
       }
       /** 方案二：车机播放状态对齐（transact(18)）。2026-10-15 真机日志确认语义与早期假设相反：
        *  0=播放中（position 每秒+1）、1=暂停（position 冻结），其余非 0/1 值一律按暂停兜底。
@@ -1740,6 +1599,7 @@
         }
         if (lyricPlaceholder) lyricPlaceholder.style.display = 'none';
         lyricLines = parseLrc(d.lyric);
+        if (!lyricLines.length) { showLyricPlaceholder(); return; }
         // 首帧从 0 开始走本地时钟，不信任 pos：车机 transact(20) 的单位/索引语义尚未确认，
         // 直接拿它校准会把歌词时钟拉回开头（卡死）。暂停对齐交给 applyLyricPos 的漂移门限处理。
         lyricStart = performance.now();
@@ -1780,10 +1640,19 @@
           drawLyricSprite3D();
         }
       }
-      /** v6：改回 3D Sprite 车后歌词层，DOM 固定层停用（始终隐藏，保留结构便于回退） */
+      /** Keep the existing world-space layer on wide displays; narrow screens use its timed DOM counterpart. */
+      var lastLyricTone = '';
       function updateLyricPanelVisibility() {
         if (!lyricPanel) return;
-        lyricPanel.style.display = 'none';
+        var tone = currentSkyKey === 'daylight' ? 'day' : 'night';
+        if (tone !== lastLyricTone) {
+          lastLyricTone = tone;
+          document.body.setAttribute('data-music-tone', tone);
+          drawLyricSprite3D();
+        }
+        var narrow = window.innerWidth <= 520;
+        lyricPanel.style.display = narrow ? 'block' : 'none';
+        if (lyricSprite3D) lyricSprite3D.visible = !narrow;
       }
       /** 每帧轮询原生推送对象（覆盖式赋值监听不到属性变化，轮询最可靠） */
       var lastLyricPoll = 0;

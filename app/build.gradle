@@ -22,9 +22,9 @@ android {
         buildConfigField 'String', 'P7_LIGHT_ACCESS_KEY', groovy.json.JsonOutput.toJson(lightProperties.getProperty('p7.light.accessKey', ''))
         minSdk 24
         targetSdk 36
-        // v1.18.2：倒影、贴地与自定义视角优化
-        versionCode 20
-        versionName "1.18.2"
+        // v1.18.3：歌词排版与四种可切换音频频谱
+        versionCode 21
+        versionName "1.18.3"
     }
 
     buildTypes {
