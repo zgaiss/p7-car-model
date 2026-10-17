@@ -323,7 +323,9 @@
       <div id="drawerPaintSettings"></div>
       <button id="drawerTimeSyncBtn" class="skyBtn">随时间同步：开</button>
       <button id="drawerDefaultViewBtn" class="skyBtn">默认视角：开</button>
-      <button id="drawerCustomViewBtn" class="skyBtn">自定义视角：关</button>
+      <button id="drawerCustomViewBtn" class="skyBtn">使用自定义视角</button>
+      <button id="drawerSaveViewBtn" class="skyBtn">保存当前视角</button>
+      <div id="cameraViewStatus" role="status" style="font-size:13px;line-height:1.5;padding:8px 0;color:#ddd;">拖动到喜欢的角度，再保存</div>
       <button id="drawerSpectrumBtn" class="skyBtn">频谱：开</button>
       <button id="drawerLightTrafficBtn" class="skyBtn">红绿灯倒计时：未激活</button>
       <!-- 微信扫码绑定激活二维码展示区（默认隐藏；点击红绿灯按钮后显示） -->
@@ -349,6 +351,8 @@
   <script src="RGBELoader.js"></script>
   <script src="body-openings.js"></script>
   <script src="car-paint.js"></script>
+  <script src="car-reflection.js"></script>
+  <script src="camera-home.js"></script>
   <script>
     (function () {
       'use strict';
@@ -399,27 +403,14 @@
         scene.add(camera);
       }
 
-      // ---------- 镜面地面 + 车身倒影 ----------
-      // 水面：大平面 y≈0，半透明蓝灰、高金属低粗糙（强环境反射），承载下方车身镜像倒影。
-      // 倒影：model.clone() + scale(1,-1,1) 翻转置于水面下（贴车底无缝隙），主体不透明
-      //       （opacity=1 + depthWrite 遮蔽内部件，不透出翻转内部结构），视觉淡化靠背景色 mix；
-      //       alpha 渐变仅在越过镜像末端阈值（按车高动态计算）后快速淡出消失。
+      // Ground reflection is depth-resolved offscreen, then softly composited once.
       var water = null;
       var reflection = null;
-      var reflColor = new THREE.Color(0x161a1e); // 倒影基础色 = 地面基础色 × 当前场景 reflDark（始终比地面深）
-      var REFL_DARK = 0.02;                      // 备用默认暗化系数（实际按 SKY_SCENES 各场景 reflDark 取值）。倒影为 MeshBasicMaterial（线性空间），显示时经 sRGB gamma 提亮约 2 倍；night 暗地面（gain 0.15）显示色已很低，须把线性色压到接近纯黑（约 0.02×基础色）才能保证 gamma 后仍明显深于地面；twilight 地面亮则用 0.45。
-      var REFL_OPACITY = 1.0;                    // 不透明：镜像主体 alpha=1 防透内（视觉淡化靠背景色 mix）
-      var REFL_BG_MIX = 0.45;                    // 倒影颜色向场景背景色混合比例（视觉变淡、柔和）
-      // 淡出阈值动态计算（buildReflection 按车高）：镜像约 88% 高度内不透明（不透内），末端快速渐隐消失
+      var groundReflection = null;
+      var reflColor = new THREE.Color(0x161a1e);
+      var REFL_DARK = 0.02;
       function updateReflectionColor() {
-        if (!reflection) return;
-        reflection.traverse(function (o) {
-          if (o.isMesh && o.material) {
-            var arr = Array.isArray(o.material) ? o.material : [o.material];
-            for (var i = 0; i < arr.length; i++) if (arr[i].color) arr[i].color.copy(reflColor);
-          }
-        });
-        if (carPaint) carPaint.syncReflection(reflection, reflColor);
+        if (reflection && carPaint) carPaint.syncReflection(reflection, reflColor);
       }
       function createWater() {
         var geo = new THREE.PlaneGeometry(300, 300);
@@ -436,55 +427,14 @@
         water.name = 'water_plane';
         water.rotation.x = -Math.PI / 2;
         water.position.y = -0.01; // 略低于车底接触面，避免 y=0 共面闪烁
-        water.renderOrder = 1; // 先画水面，倒影后画叠加其上
+        water.renderOrder = 1; // 先画水面，再单次合成柔化后的倒影
         scene.add(water);
       }
       function buildReflection() {
         if (!model) return;
-        // 动态计算车高：镜像主体（车底 0 → 车顶镜像 -carH）需 alpha=1 不透内，
-        // 仅越过镜像末端阈值后才开始淡出消失（观感保留渐隐，但不透内部件）
-        var box = new THREE.Box3().setFromObject(model);
-        var carH = Math.max(box.getSize(new THREE.Vector3()).y, 0.5);
-        var fadeY = -carH * 0.5; // 淡出起点：车底向下约 50% 高度处 alpha=1 开始渐变
-        var fadeK = 1.0 / (0.2 * carH); // 到约 70% 高度处 alpha=0 完全消失（50%→70% 线性过渡）
-        reflection = model.clone();
-        reflection.name = 'reflection';
-        reflection.scale.set(1, -1, 1); // 上下翻转成镜像
-        reflection.position.y = 0.003;  // 贴车底（略高于水面 y=-0.01，防共面闪烁与黑缝）
-        reflection.renderOrder = 2;     // 最后绘制：暗色倒影盖在水面亮反射之上（night 天空反光不再把倒影区域照浅）
-        reflection.traverse(function (o) { if (o.isMesh) o.renderOrder = 2; }); // 子网格同步最后绘制
-        reflection.traverse(function (o) {
-          if (!o.isMesh) return;
-          if (o.name === 'Mesh.010') { o.visible = false; return; } // 侧窗玻璃不显示在倒影
-          var mat = new THREE.MeshBasicMaterial({
-            color: reflColor,
-            transparent: true,
-            opacity: REFL_OPACITY, // 1.0：镜像主体不透明，不透出内部结构
-            depthWrite: true,      // 外表面写深度，遮蔽翻转后的内部件
-            side: THREE.DoubleSide,
-            frustumCulled: false // 翻转后包围盒异常，禁止剔除
-          });
-          // 车身镜像范围内 alpha 恒为 1（不透内）；越过末端阈值后按斜率淡出消失；
-          // 视觉淡化由背景色 mix 完成：颜色按比例混入 reflColor，观感变淡但保持实色覆盖。
-          mat.onBeforeCompile = function (shader) {
-            shader.vertexShader = 'varying float vReflWorldY;\n' + shader.vertexShader;
-            shader.vertexShader = shader.vertexShader.replace(
-              '#include <begin_vertex>',
-              '#include <begin_vertex>\nvReflWorldY = (modelMatrix * vec4(position, 1.0)).y;\n'
-            );
-            shader.fragmentShader = 'uniform float reflFadeY;\nuniform float reflFadeK;\nuniform vec3 reflBg;\nuniform float reflBgMix;\nvarying float vReflWorldY;\n' + shader.fragmentShader;
-            shader.fragmentShader = shader.fragmentShader.replace(
-              '#include <color_fragment>',
-              '#include <color_fragment>\nfloat reflFade = clamp(1.0 + (vReflWorldY - reflFadeY) * reflFadeK, 0.0, 1.0);\ndiffuseColor.a *= reflFade;\ndiffuseColor.rgb = mix(diffuseColor.rgb, reflBg, reflBgMix);\n'
-            );
-            shader.uniforms.reflFadeY = { value: fadeY };
-            shader.uniforms.reflFadeK = { value: fadeK };
-            shader.uniforms.reflBg = { value: reflColor }; // 引用同一 Color：场景切换时随 reflColor 自动同步
-            shader.uniforms.reflBgMix = { value: REFL_BG_MIX };
-          };
-          o.material = mat;
-        });
-        scene.add(reflection);
+        groundReflection = createCarReflection(THREE, { planeY: water.position.y });
+        reflection = groundReflection.load(model);
+        scene.add(groundReflection.surface);
         carPaint.syncReflection(reflection, reflColor);
       }
 
@@ -832,48 +782,57 @@
       })();
 
       // ---------- 自定义归位视角（默认视角 / 自定义视角 互斥开关） ----------
-      var useCustomHome = false;           // true=归位到自定义视角；false=归位到代码默认视角
-      var customHomePos = new THREE.Vector3();     // 自定义归位：相机位置
-      var customHomeTarget = new THREE.Vector3();  // 自定义归位：观察目标
-      var customHomeSet = false;           // 是否已记录过自定义视角
+      var cameraStorage = null;
+      try { cameraStorage = window.localStorage; } catch (_) {}
+      var cameraHome = P7CameraHome.create(cameraStorage);
+      var useCustomHome = false;
+      var customHomePos = new THREE.Vector3();
+      var customHomeTarget = new THREE.Vector3();
+      var customHomeSet = false;
+      function syncViewPreference() {
+        var saved = cameraHome.snapshot();
+        customHomeSet = !!saved.pose;
+        useCustomHome = saved.mode === 'custom' && customHomeSet;
+        if (saved.pose) {
+          customHomePos.fromArray(saved.pose.position);
+          customHomeTarget.fromArray(saved.pose.target);
+        }
+      }
+      syncViewPreference();
       function updateViewModeBtns() {
         var db = document.getElementById('drawerDefaultViewBtn');
         var cb = document.getElementById('drawerCustomViewBtn');
-        if (db) { db.textContent = useCustomHome ? '默认视角：关' : '默认视角：开'; db.classList.toggle('on', !useCustomHome); }
-        if (cb) { cb.textContent = useCustomHome ? '自定义视角：开' : '自定义视角：关'; cb.classList.toggle('on', useCustomHome); }
+        var sb = document.getElementById('drawerSaveViewBtn');
+        if (db) { db.textContent = useCustomHome ? '使用默认视角' : '默认视角：使用中'; db.classList.toggle('on', !useCustomHome); }
+        if (cb) { cb.textContent = useCustomHome ? '自定义视角：使用中' : '使用自定义视角'; cb.classList.toggle('on', useCustomHome); cb.disabled = !customHomeSet || !model; }
+        if (sb) sb.disabled = !model;
       }
       (function initViewMode() {
         var db = document.getElementById('drawerDefaultViewBtn');
         var cb = document.getElementById('drawerCustomViewBtn');
-        if (db) {
-          db.addEventListener('click', function (ev) {
-            if (ev && ev.preventDefault) ev.preventDefault();
-            resetTimer(); showBtns();
-            useCustomHome = false;
-            if (model) computeHomePose(); // 重算代码默认归位目标
-            beginTween(); // 立即归位到默认视角
-            updateViewModeBtns();
-          });
-        }
-        if (cb) {
-          cb.addEventListener('click', function (ev) {
-            if (ev && ev.preventDefault) ev.preventDefault();
-            resetTimer(); showBtns();
-            if (!useCustomHome) {
-              // 开启：记录当前视角作为归位视角
-              customHomePos.copy(camera.position);
-              customHomeTarget.copy(controls.target);
-              customHomeSet = true;
-              useCustomHome = true;
-            } else {
-              // 关闭：切回代码默认归位目标
-              useCustomHome = false;
-              if (model) computeHomePose();
-            }
-            beginTween(); // 立即归位到生效目标（自定义或默认）
-            updateViewModeBtns();
-          });
-        }
+        var sb = document.getElementById('drawerSaveViewBtn');
+        if (db) db.addEventListener('click', function (ev) {
+          ev.preventDefault();
+          resetTimer(); showBtns();
+          cameraHome.select('default'); syncViewPreference();
+          if (model) { computeHomePose(); beginTween(); }
+          updateViewModeBtns();
+        });
+        if (cb) cb.addEventListener('click', function (ev) {
+          ev.preventDefault();
+          if (!model || !cameraHome.select('custom')) return;
+          resetTimer(); showBtns(); syncViewPreference();
+          beginTween(); updateViewModeBtns();
+        });
+        if (sb) sb.addEventListener('click', function (ev) {
+          ev.preventDefault();
+          if (!model) return;
+          cancelTween();
+          clearCameraMomentum();
+          var result = cameraHome.save(camera.position.toArray(), controls.target.toArray());
+          syncViewPreference(); resetTimer(); showBtns(); updateViewModeBtns();
+          document.getElementById('cameraViewStatus').textContent = !result.ok ? '视角无效，请重新调整' : result.persisted ? '当前视角已保存，下次打开自动恢复' : '当前视角已启用，但无法保存到本机';
+        });
         updateViewModeBtns();
       })();
       // ---------- 模型状态 ----------
@@ -888,9 +847,12 @@
       // 投影计算：水平目标占屏 HOME_TARGET_H=0.78（车更近、占屏更大，修复"归位太远"），竖直不溢出（留 5% 边距），取两者更远者。
       // 只统计可见 mesh（跳过隐藏 mesh / 环境物体），避免包围盒虚大导致实测占屏偏小（修复原 ~40% 问题）。
       // 窗口尺寸变化时 onResize 重算；仅更新归位目标，不打扰当前自由视角/归位缓动。
+      var closedHomeBounds = null; // Stable closed-body bounds; doors never change default framing.
       var homeFrac = 0; // 归位后模型水平占屏比例（调试）
       var HOME_TARGET_H = 0.92; // 水平占屏目标系数（车更近、占屏更大）
       function getVisibleBounds(obj) {
+        // Refresh hinge ancestors before measuring meshes, including before the first render.
+        obj.updateWorldMatrix(true, true);
         var box = new THREE.Box3();
         var tmp = new THREE.Box3();
         obj.traverse(function (o) {
@@ -904,7 +866,7 @@
       var lastPortrait = null; // 上次宽高比状态（竖屏/横屏），用于实时检测切换
       function computeHomePose() {
         if (!model) return;
-        var box = getVisibleBounds(model);
+        var box = closedHomeBounds || getVisibleBounds(model);
         if (box.isEmpty()) return;
         var c = box.getCenter(new THREE.Vector3());
         var sz = box.getSize(new THREE.Vector3());
@@ -971,7 +933,7 @@
       var toggleCarLights = null;
       var openings = createBodyOpenings(THREE, { canvas: renderer.domElement, camera: camera, panel: document.getElementById('openingControls'), onActivity: resetTimer, onDoubleTap: function () { if (toggleCarLights) toggleCarLights(); } });
       openings.bind();
-      window.addEventListener('pagehide', function (event) { if (!event.persisted) { openings.dispose(); carPaint.dispose(); } });
+      window.addEventListener('pagehide', function (event) { if (!event.persisted) { openings.dispose(); carPaint.dispose(); if (groundReflection) groundReflection.dispose(); } });
 
       // ---------- 模型加载（离线拆分的六舱门模型；保留原材质，按设置覆盖车漆颜色） ----------
       var loader = new GLTFLoader();
@@ -986,7 +948,7 @@
         carPaint.load(model);
         // Preserve original material identity before reflection replaces its materials.
         model.traverse(function (o) { if (o.isMesh) { var m = Array.isArray(o.material) ? o.material[0] : o.material; o.userData.sourceMaterial = m && m.name; } });
-        buildReflection(); // 车底镜面倒影（翻转镜像 + 渐变淡出，贴车底无缝隙）
+        buildReflection(); // 实时镜像保留接地与舱门姿态，整体柔化后合成
 
         openings.load(model, reflection);
         // Explicit local QA opt-in; normal app launches expose no scene handles.
@@ -999,11 +961,15 @@
         controls.minDistance = radius * 0.35;
         controls.maxDistance = radius * 6.5;
 
+        model.updateMatrixWorld(true);
+        closedHomeBounds = getVisibleBounds(model).clone();
+        updateViewModeBtns();
+
         // 相机初始位置：按包围盒与屏幕尺寸自适应（水平占屏 3/5、竖直不溢出）
         computeHomePose();
 
-        camera.position.copy(homePos);
-        controls.target.copy(homeTarget);
+        camera.position.copy(useCustomHome ? customHomePos : homePos);
+        controls.target.copy(useCustomHome ? customHomeTarget : homeTarget);
         controls.update();
 
         statusEl.textContent = 'P7 SHOW · 2020 XPeng P7 已加载 · 点击车门或舱盖开关 / 拖动旋转 / 双击车身切换灯光';
@@ -1090,7 +1056,26 @@
       }
       // 任意用户活动：仅重置计时（并短暂显示提示），不恢复按钮——只有点击按钮所在位置才恢复显示
       function resetTimer() { lastActivity = Date.now(); showUI(); }
-      function beginTween() { isTweening = true; controls.enabled = false; }
+      var cameraInteracting = false;
+      var cameraPointers = P7CameraHome.pointers();
+      var cameraFrameTime = performance.now();
+      function cancelTween() { isTweening = false; controls.enabled = true; }
+      function clearCameraMomentum() {
+        // OrbitControls keeps damping deltas after release. Clear them without moving the saved pose.
+        var p = camera.position.clone(), t = controls.target.clone();
+        var damping = controls.enableDamping;
+        controls.enableDamping = false;
+        controls.update();
+        camera.position.copy(p); controls.target.copy(t); controls.update();
+        controls.enableDamping = damping;
+      }
+      function beginTween() {
+        if (!model) return;
+        clearCameraMomentum();
+        isTweening = true;
+        cameraFrameTime = performance.now();
+        controls.enabled = true; // A new gesture can immediately take over.
+      }
 
       // ---------- 左侧滑出式设置浮窗（drawer）----------
       // 布局：33vw 宽、左侧滑入；交互：浮窗本体跟手拖回 + 关闭按钮，展开/收起由时钟点击（setDrawerOpen）触发；
@@ -1175,7 +1160,7 @@
       window.addEventListener('mousemove', function (e) { if (drawerDrag) moveDrawerDrag(e.clientX); });
       window.addEventListener('mouseup', function (e) { if (drawerDrag) endDrawerDrag(e.clientX); });
       if (drawerCloseBtn) drawerCloseBtn.addEventListener('click', function () { setDrawerOpen(false); });
-      function setDrawerOpen(open) { animateDrawerTo(open); }
+      function setDrawerOpen(open) { cancelTween(); resetTimer(); animateDrawerTo(open); }
 
       // ---------- 左上角 24 小时制数字时钟（点击弹出设置浮窗，替代原左滑手势） ----------
       var clockEl = document.getElementById('clock');
@@ -1196,8 +1181,14 @@
 
       // 浮窗联动已移除（v3）：滑出/收起过程中镜头与车模保持原位，OrbitControls 不受影响
 
-      renderer.domElement.addEventListener('pointerdown', resetTimer);
-      renderer.domElement.addEventListener('wheel', resetTimer);
+      renderer.domElement.addEventListener('pointerdown', function (e) { cameraPointers.start(e.pointerId); cancelTween(); cameraInteracting = true; resetTimer(); }, true);
+      function endCameraInteraction(e) { if (e && e.pointerId !== undefined) cameraPointers.end(e.pointerId); cameraInteracting = cameraPointers.active(); resetTimer(); }
+      window.addEventListener('pointerup', endCameraInteraction);
+      window.addEventListener('pointercancel', endCameraInteraction);
+      window.addEventListener('blur', function () { cameraPointers.clear(); endCameraInteraction(); });
+      controls.addEventListener('start', function () { cancelTween(); cameraInteracting = true; resetTimer(); });
+      controls.addEventListener('end', endCameraInteraction);
+      renderer.domElement.addEventListener('wheel', function () { cancelTween(); resetTimer(); }, { passive: true, capture: true });
       renderer.domElement.addEventListener('touchstart', resetTimer, { passive: true });
       controls.addEventListener('change', function () { if (!isTweening) resetTimer(); });
       window.addEventListener('pointerdown', resetTimer);
@@ -1208,9 +1199,8 @@
       setInterval(function () {
         if (Date.now() - lastActivity >= BTN_HIDE_MS) hideBtns();
         if (Date.now() - lastActivity >= UI_HIDE_MS) hideUI();
-        // 空闲自动归位（浮窗展开/跟手期间不再暂停，v3）
-        if (!model || isTweening) return;
-        if (Date.now() - lastActivity >= IDLE_MS) beginTween();
+        // Never steal the view while editing settings or holding a gesture.
+        if (P7CameraHome.shouldReturn(Date.now() - lastActivity, drawerOpen || drawerRatio > 0.02 || !!drawerDrag || !!drawerAnim, cameraInteracting, isTweening, !!model)) beginTween();
       }, 250);
 
       // ---------- 红绿灯倒计时（路径A：Android 原生层推送 window.__lightData / __lightActivateResult） ----------
@@ -1833,6 +1823,9 @@
       // ---------- 渲染循环 ----------
       function animate() {
         requestAnimationFrame(animate);
+        var frameNow = performance.now();
+        var cameraDt = Math.max(0, (frameNow - cameraFrameTime) / 1000);
+        cameraFrameTime = frameNow;
         openings.update(performance.now());
         drawFreq();
         pollLyricData();      // 轮询原生推送的歌词数据（内容变化才处理）
@@ -1850,8 +1843,9 @@
         var hP = (useCustomHome && customHomeSet) ? customHomePos : homePos;
         var hT = (useCustomHome && customHomeSet) ? customHomeTarget : homeTarget;
         if (isTweening) {
-          camera.position.lerp(hP, 0.06);
-          controls.target.lerp(hT, 0.06);
+          var returnAlpha = P7CameraHome.alpha(cameraDt);
+          camera.position.lerp(hP, returnAlpha);
+          controls.target.lerp(hT, returnAlpha);
           camera.lookAt(controls.target);
           if (camera.position.distanceTo(hP) < 0.02 && controls.target.distanceTo(hT) < 0.02) {
             camera.position.copy(hP);
@@ -1875,6 +1869,7 @@
           applyDrawerTransform();
         }
         // 浮窗联动已移除（v3）：不移动相机与车模，OrbitControls 保持自由
+        if (groundReflection) groundReflection.render(renderer, camera);
         renderer.render(scene, camera);
       }
 
