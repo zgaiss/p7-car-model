@@ -1,0 +1,63 @@
+{
+  "retrieved": "2026-10-17",
+  "repositories": {
+    "kopiro/siriwave": "744cb00235b7900733efff25dc73b4d1ab77c92d",
+    "CaYatur/SoundVisualizer": "03c72cbc7483069a2777ad81d47e9b330e510687"
+  },
+  "files": [
+    {
+      "path": "kopiro/siriwave/LICENSE",
+      "url": "https://raw.githubusercontent.com/kopiro/siriwave/744cb00235b7900733efff25dc73b4d1ab77c92d/LICENSE",
+      "sha256": "c3ea8f05bc47ffa4dd7f4eaa11f406447621766d26de9ced3840ecc5293c0172",
+      "bytes": 1081
+    },
+    {
+      "path": "kopiro/siriwave/dist/siriwave.umd.js",
+      "url": "https://raw.githubusercontent.com/kopiro/siriwave/744cb00235b7900733efff25dc73b4d1ab77c92d/dist/siriwave.umd.js",
+      "sha256": "5bb56b99f03c430ff8a6a7edd723ca44a25a5f4f33e95ee5524ee43eb03c641e",
+      "bytes": 20909
+    },
+    {
+      "path": "kopiro/siriwave/dist/siriwave.umd.min.js",
+      "url": "https://raw.githubusercontent.com/kopiro/siriwave/744cb00235b7900733efff25dc73b4d1ab77c92d/dist/siriwave.umd.min.js",
+      "sha256": "d338bd6e85298e8fe400ae99dfd26d57733db69d7241de511813fcabee6d4eae",
+      "bytes": 10644
+    },
+    {
+      "path": "kopiro/siriwave/package.json",
+      "url": "https://raw.githubusercontent.com/kopiro/siriwave/744cb00235b7900733efff25dc73b4d1ab77c92d/package.json",
+      "sha256": "e9d1104fcae7fd722dbbe86b1b6fa277bd1227133ed54163677e3eb536d62f02",
+      "bytes": 1420
+    },
+    {
+      "path": "CaYatur/SoundVisualizer/LICENSE",
+      "url": "https://raw.githubusercontent.com/CaYatur/SoundVisualizer/03c72cbc7483069a2777ad81d47e9b330e510687/LICENSE",
+      "sha256": "ff556661abdb762debda27cd86832de4052124e7a7cb89e55c109089e283989e",
+      "bytes": 1115
+    },
+    {
+      "path": "CaYatur/SoundVisualizer/package.json",
+      "url": "https://raw.githubusercontent.com/CaYatur/SoundVisualizer/03c72cbc7483069a2777ad81d47e9b330e510687/package.json",
+      "sha256": "6c59222ee3c96606e39b35a6972cc1d19e29675588a3e9a78c2a9aefa48bbee6",
+      "bytes": 6618
+    },
+    {
+      "path": "CaYatur/SoundVisualizer/src/visualizer/modes/glow.js",
+      "url": "https://raw.githubusercontent.com/CaYatur/SoundVisualizer/03c72cbc7483069a2777ad81d47e9b330e510687/src/visualizer/modes/glow.js",
+      "sha256": "9c9ad811fa7187ac04b19f60aeb809acaf6a8dc5bf17b1f78136d43455667e53",
+      "bytes": 2647
+    },
+    {
+      "path": "CaYatur/SoundVisualizer/src/visualizer/modes/ribbon.js",
+      "url": "https://raw.githubusercontent.com/CaYatur/SoundVisualizer/03c72cbc7483069a2777ad81d47e9b330e510687/src/visualizer/modes/ribbon.js",
+      "sha256": "ceec723b9d128e9192ad7b21c8556f351ad8c66377aa2ea72ac452d750005e12",
+      "bytes": 3562
+    },
+    {
+      "path": "CaYatur/SoundVisualizer/src/visualizer/modes/terrain.js",
+      "url": "https://raw.githubusercontent.com/CaYatur/SoundVisualizer/03c72cbc7483069a2777ad81d47e9b330e510687/src/visualizer/modes/terrain.js",
+      "sha256": "a69aafb9fbb0b4fa22948f606826f6abdabfc303b05117d87d166997b1058bad",
+      "bytes": 3583
+    }
+  ]
+}

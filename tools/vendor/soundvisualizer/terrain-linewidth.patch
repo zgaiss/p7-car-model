@@ -1,0 +1,11 @@
+--- upstream/terrain.js
++++ adapted/terrain.js
+@@ -67,7 +67,7 @@
+         const a = (1 - k) * (1 - k) * 0.9 + 0.08;
+ 
+         ctx.globalAlpha = a;
+-        ctx.lineWidth = Math.max(1, Math.min(W, H) * 0.0022 * (1 - k * 0.5));
++        ctx.lineWidth = Math.max(1, (v.lineWidth || Math.min(W, H) * 0.0022) * (1 - k * 0.5));
+         const colorMode = v.colorMode || (v.rainbow ? 'rainbow' : 'custom');
+         if (colorMode === 'theme') {
+           ctx.strokeStyle = window.SV.sampleThemeColor(cfg, 1 - k);
