@@ -891,6 +891,8 @@
       var homeFrac = 0; // 归位后模型水平占屏比例（调试）
       var HOME_TARGET_H = 0.92; // 水平占屏目标系数（车更近、占屏更大）
       function getVisibleBounds(obj) {
+        // Refresh hinge ancestors before measuring meshes, including before the first render.
+        obj.updateWorldMatrix(true, true);
         var box = new THREE.Box3();
         var tmp = new THREE.Box3();
         obj.traverse(function (o) {
