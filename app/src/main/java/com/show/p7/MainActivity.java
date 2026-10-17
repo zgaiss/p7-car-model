@@ -6,6 +6,9 @@ import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.pm.PackageManager;
+import android.content.ActivityNotFoundException;
+import android.content.Intent;
+import android.net.Uri;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
@@ -25,6 +28,7 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.WebResourceRequest;
 
 import java.util.Locale;
 
@@ -67,6 +71,9 @@ public class MainActivity extends Activity {
 
     /** 红绿灯倒计时 SDK 会话（路径A：SDK 初始化 + 定位上报 + 500ms 灯态轮询） */
     private LightSdkController lightController;
+
+    /** 独立的可选真实天气链路：默认关闭，仅显式同意后前台工作。 */
+    private WeatherController weatherController;
 
     /** 麦克风采集资源 */
     private AudioRecord micRecord;
@@ -161,6 +168,28 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** Weather settings bridge. Enabling never opens the Android permission prompt. */
+    public class AndroidWeatherBridge {
+        @JavascriptInterface
+        public String getWeatherState() {
+            return weatherController == null ? "{\"enabled\":false,\"status\":\"disabled\"}" : weatherController.getState();
+        }
+
+        /** true is an explicit acceptance of the disclosure shown by the local settings UI. */
+        @JavascriptInterface
+        public String setWeatherEnabled(boolean accepted) {
+            if (weatherController != null) weatherController.setEnabled(accepted);
+            return "pending";
+        }
+
+        /** Called from a separate, explicit user action, after accepting the weather disclosure. */
+        @JavascriptInterface
+        public String requestWeatherLocationPermission() {
+            if (weatherController != null) weatherController.requestLocationPermission();
+            return "pending";
+        }
+    }
+
     /** 启动红绿灯 SDK 会话（幂等；onPageFinished / onResume / 定位授权后调用） */
     private void startLightController() {
         if (lightController != null) {
@@ -208,6 +237,7 @@ public class MainActivity extends Activity {
         settings.setUseWideViewPort(true);
         settings.setBuiltInZoomControls(false);
         settings.setDisplayZoomControls(false);
+        settings.setSupportMultipleWindows(false); // External links never create an unguarded bridge WebView.
         settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
 
         // 暴露 JS 桥：JS 侧轮询 getSpectrum() 作为数据兜底
@@ -216,8 +246,21 @@ public class MainActivity extends Activity {
         webView.addJavascriptInterface(new AndroidLightBridge(), "AndroidLightBridge");
         // 红绿灯倒计时 SDK 会话（路径A）：传 webView 供灯态推送
         lightController = new LightSdkController(this, webView);
+        weatherController = new WeatherController(this, webView);
+        webView.addJavascriptInterface(new AndroidWeatherBridge(), "AndroidWeatherBridge");
 
         webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                return routePageNavigation(request.getUrl(), request.isForMainFrame() && request.hasGesture());
+            }
+
+            @SuppressWarnings("deprecation")
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                return routePageNavigation(Uri.parse(url), true);
+            }
+
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
@@ -225,6 +268,7 @@ public class MainActivity extends Activity {
                 startMicCaptureIfPermitted();
                 // 页面加载完成后启动红绿灯 SDK 会话（定位监听 + 500ms 灯态轮询）
                 startLightController();
+                if (weatherController != null) weatherController.onPageReady();
             }
         });
         webView.setWebChromeClient(new WebChromeClient() {
@@ -258,6 +302,19 @@ public class MainActivity extends Activity {
         }
 
         webView.loadUrl("file:///android_asset/index.html");
+    }
+
+    /** Remote documents must never load in the WebView that exposes native permission bridges. */
+    private boolean routePageNavigation(Uri uri, boolean userGesture) {
+        if ("file".equals(uri.getScheme()) && (uri.getAuthority() == null || uri.getAuthority().isEmpty())
+                && "/android_asset/index.html".equals(uri.getPath())) return false;
+        if (userGesture && "https".equals(uri.getScheme())) {
+            try {
+                Intent browser = new Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE);
+                startActivity(browser);
+            } catch (ActivityNotFoundException | SecurityException ignored) { /* A vehicle may have no browser installed. */ }
+        }
+        return true; // Block other schemes, subframe navigation and unsolicited remote redirects.
     }
 
     /**
@@ -391,6 +448,9 @@ public class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == WeatherController.REQUEST_LOCATION && weatherController != null) {
+            weatherController.onPermissionResult();
+        }
         if (requestCode == REQ_AUDIO && grantResults.length > 0
                 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             startMicCaptureIfPermitted();
@@ -947,10 +1007,12 @@ public class MainActivity extends Activity {
         startLyricPolling();
         // 恢复红绿灯 SDK 会话（定位监听 + 灯态轮询；start 幂等）
         startLightController();
+        if (weatherController != null) weatherController.onResume();
     }
 
     @Override
     protected void onPause() {
+        if (weatherController != null) weatherController.onPause();
         stopMicCaptureReadLoop(); // 停止后台读取并释放 AudioRecord
         stopLyricPolling();       // 停止歌词轮询
         stopLightController();    // 停止红绿灯 SDK 会话（定位监听 + 灯态轮询）
@@ -962,6 +1024,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (weatherController != null) weatherController.destroy();
         releaseMicCapture();
         stopLyricPolling();
         stopLightController(); // 停止红绿灯 SDK 会话并释放原生会话
