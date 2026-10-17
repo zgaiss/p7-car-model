@@ -22,9 +22,9 @@ android {
         buildConfigField 'String', 'P7_LIGHT_ACCESS_KEY', groovy.json.JsonOutput.toJson(lightProperties.getProperty('p7.light.accessKey', ''))
         minSdk 24
         targetSdk 36
-        // 正式版本迭代：v1.17 -> v1.18（修复场景4 晨间4K 背景不生效：重新生成 morning001b_4k.hdr）
-        versionCode 18
-        versionName "1.18"
+        // v1.18.1：车漆设置与六个独立车门 / 舱盖控制
+        versionCode 19
+        versionName "1.18.1"
     }
 
     buildTypes {

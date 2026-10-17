@@ -12,7 +12,7 @@ AIGC:
 
 基于 Android WebView 与 Three.js 的小鹏 P7 交互式 3D 车模展示应用，面向 Android 手机与兼容车机屏幕。
 
-本仓库初始源码来自 `P7Show-source-v1.38(1).zip`。压缩包名称中的 **v1.38** 是来源标记；当前 `app/build.gradle` 的应用版本仍为 **1.18**（`versionCode 18`），两者尚未统一。
+本仓库初始源码来自 `P7Show-source-v1.38(1).zip`。压缩包名称中的 **v1.38** 是来源标记；当前 `app/build.gradle` 的应用版本为 **1.18.1**（`versionCode 19`），版本更新说明见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 功能
 
@@ -100,7 +100,7 @@ p7.light.accessKey=YOUR_ACCESS_KEY
         ├── assets/
         │   ├── index.html              # 主要界面与 3D 场景逻辑
         │   ├── three.min.js / *Loader.js / OrbitControls.js
-        │   ├── model/                  # 当前加载 XPP7_Model_v4.glb，另保留 v1
+        │   ├── model/                  # 当前加载 XPP7_Model_openings.glb，保留原始模型
         │   ├── background/             # HDR 环境资源
         │   └── index.html.bak_*        # 随原始压缩包保留的历史备份
         └── res/                        # 布局、主题、字符串与应用图标
@@ -108,8 +108,8 @@ p7.light.accessKey=YOUR_ACCESS_KEY
 
 ## 当前状态与素材说明
 
-- 此次整理为源码导入与仓库文档补充，未提供经过验证的 APK，也未完成 Android 真机、车机接口或 SDK 联调验证。
-- 当前设置面板提供三种场景；资源目录中另保留了晨间等 HDR 文件。旧版说明提到的车漆换色按钮不在当前界面中。
+- 尚未完成 Android 真机、车机接口或 SDK 联调验证；源码检查不能替代实机验证。
+- 当前设置面板提供三种场景；资源目录中另保留了晨间等 HDR 文件。车漆设置现位于时钟打开的设置面板中。
 - 压缩包原 README 将模型标注为 **Sketchfab · supercarmodels · 2022 XPeng P7 · CC-BY-4.0**。这里保留原始署名信息；当前 v4 模型、HDR 与 SDK 的具体来源和再分发授权仍需按各自原始素材说明核实。
 - 仓库尚未添加项目整体的开源许可证。模型的原始许可声明不代表全部代码、素材与原生 SDK 使用同一许可。
 
