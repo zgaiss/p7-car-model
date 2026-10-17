@@ -22,9 +22,9 @@ android {
         buildConfigField 'String', 'P7_LIGHT_ACCESS_KEY', groovy.json.JsonOutput.toJson(lightProperties.getProperty('p7.light.accessKey', ''))
         minSdk 24
         targetSdk 36
-        // v1.18.4：简洁黑胶歌曲信息与元信息状态处理
-        versionCode 22
-        versionName "1.18.4"
+        // v1.18.5：默认关闭的前台天气接入与雨雪雾星空视觉
+        versionCode 23
+        versionName "1.18.5"
     }
 
     buildTypes {

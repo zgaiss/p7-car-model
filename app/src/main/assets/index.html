@@ -369,6 +369,12 @@
   <script src="RGBELoader.js"></script>
   <script src="body-openings.js"></script>
   <script src="car-paint.js"></script>
+  <script src="vendor/nebula/three-nebula.umd.js"></script>
+  <script src="weather-effects.js"></script>
+  <script src="glass-rain.js"></script>
+  <script src="weather-concepts.js"></script>
+  <script src="weather-state.js"></script>
+  <script src="weather-ui.js"></script>
   <script src="car-reflection.js"></script>
   <script src="camera-home.js"></script>
   <script src="lyrics-display.js"></script>
@@ -384,6 +390,13 @@
     (function () {
       'use strict';
 
+      var weatherConcept = new URLSearchParams(location.search).get('weatherConcept');
+      if(['baseline','fog','wind-rain','wind-snow'].indexOf(weatherConcept)<0)weatherConcept=null;
+      var weatherPreview = weatherConcept ? (weatherConcept==='wind-rain'?'rain':weatherConcept==='wind-snow'?'snow':'none') : new URLSearchParams(location.search).get('weatherPreview');
+      var weatherAtmosphere = null, weatherUi = null, weatherStore = null, weatherLastCheck = -Infinity;
+      if (['none','rain','snow','stars'].indexOf(weatherPreview) < 0) weatherPreview = null;
+      var glassRain = null;
+      var weatherEffects = null, weatherUiRects = [], weatherRectTime = 0;
       var container = document.getElementById('container');
       var statusEl = document.getElementById('status');
       var debugEl = document.getElementById('debug');
@@ -398,6 +411,7 @@
       renderer.setClearColor(0x000000, 0); // B项：完全透明，露出 body 深色背景
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       renderer.setSize(window.innerWidth, window.innerHeight);
+      if(weatherPreview)renderer.debug.onShaderError=function(gl,program,vs,fs){var d=document.createElement('pre');d.style.cssText='position:fixed;inset:0;z-index:999;background:black;color:red';d.textContent=gl.getProgramInfoLog(program)+'\n'+gl.getShaderInfoLog(vs)+'\n'+gl.getShaderInfoLog(fs);document.body.appendChild(d);};
       renderer.useLegacyLights = false; // 物理光照模式，对应新版 three 默认；Neutral 环境 PointLight 强度 900 依赖此模式
       renderer.toneMapping = THREE.ACESFilmicToneMapping; // 场景美化：ACES 柔和高光，防天空/车身高光过曝
       renderer.toneMappingExposure = 0.95; // ACES 下略压高光，亮度由场景参数补偿（防过曝）
@@ -777,6 +791,7 @@
       var timeSyncTimer = null;
       function syncSceneByTime() {
         if (!timeSyncOn) return;
+        if(weatherStore){var live=weatherStore.getVisual({now:Date.now(),sceneNight:currentSkyKey==='night',timeSyncOn:true});if(live.skyHint){switchSky(live.skyHint);return;}}
         var d = new Date();
         var t = d.getHours() * 60 + d.getMinutes();
         var k;
@@ -955,12 +970,12 @@
         homeFrac = xHalf / (d * tanH); // 记录实际水平占屏比例（调试）
       }
 
-      var carPaint = createCarPaint(THREE, { onActivity: resetTimer });
+      var carPaint = createCarPaint(THREE, weatherPreview ? { onActivity: resetTimer, storage: null } : { onActivity: resetTimer });
       carPaint.mountSettings(document.getElementById('drawerPaintSettings'));
       var toggleCarLights = null;
       var openings = createBodyOpenings(THREE, { canvas: renderer.domElement, camera: camera, panel: document.getElementById('openingControls'), onActivity: resetTimer, onDoubleTap: function () { if (toggleCarLights) toggleCarLights(); } });
       openings.bind();
-      window.addEventListener('pagehide', function (event) { if (!event.persisted) { openings.dispose(); carPaint.dispose(); if (groundReflection) groundReflection.dispose(); } });
+      window.addEventListener('pagehide', function (event) { if (!event.persisted) { openings.dispose(); carPaint.dispose(); if (weatherEffects) weatherEffects.dispose(); if (glassRain) glassRain.dispose(); if(weatherAtmosphere)weatherAtmosphere.dispose(); if(weatherUi)weatherUi.dispose(); if (groundReflection) groundReflection.dispose(); } });
 
       // ---------- 模型加载（离线拆分的六舱门模型；保留原材质，按设置覆盖车漆颜色） ----------
       var loader = new GLTFLoader();
@@ -973,6 +988,7 @@
         var preBox = getVisibleBounds(model);
         model.position.y = -preBox.min.y;
         carPaint.load(model);
+        if (weatherPreview) carPaint.setColor('#ad2638');
         // Preserve original material identity before reflection replaces its materials.
         model.traverse(function (o) { if (o.isMesh) { var m = Array.isArray(o.material) ? o.material[0] : o.material; o.userData.sourceMaterial = m && m.name; } });
         buildReflection(); // 实时镜像保留接地与舱门姿态，整体柔化后合成
@@ -1715,13 +1731,62 @@
           applyDrawerTransform();
         }
         // 浮窗联动已移除（v3）：不移动相机与车模，OrbitControls 保持自由
+        if (!weatherPreview && weatherStore && frameNow-weatherLastCheck>1000) { weatherLastCheck=frameNow; applyLiveWeather(); }
+        if (weatherEffects || glassRain) {
+          if (frameNow - weatherRectTime > 250) {
+            weatherRectTime = frameNow; weatherUiRects = [];
+            ['clock','lyricPanel','songMeta','openingControls','drawer','freqCanvas','lightCard'].forEach(function(id){
+              var el=document.getElementById(id);if(!el)return;var r=el.getBoundingClientRect();
+              if(r.width && r.height && r.right>0 && r.left<innerWidth && getComputedStyle(el).visibility!=='hidden') weatherUiRects.push({left:r.left-10,right:r.right+10,top:r.top-8,bottom:r.bottom+8});
+            });
+          }
+          var weatherMasks=weatherUiRects.slice(0,7);
+          if(model){
+            var minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+            model.updateWorldMatrix(true,true);
+            model.traverse(function(mesh){if(!mesh.isMesh||!mesh.visible)return;if(!mesh.geometry.boundingBox)mesh.geometry.computeBoundingBox();var wb=mesh.geometry.boundingBox;
+              for(var wi=0;wi<8;wi++){var wp=new THREE.Vector3(wi&1?wb.max.x:wb.min.x,wi&2?wb.max.y:wb.min.y,wi&4?wb.max.z:wb.min.z).applyMatrix4(mesh.matrixWorld).project(camera);if(wp.z< -1||wp.z>1)continue;var wx=(wp.x+1)*innerWidth/2,wy=(1-wp.y)*innerHeight/2;minX=Math.min(minX,wx);maxX=Math.max(maxX,wx);minY=Math.min(minY,wy);maxY=Math.max(maxY,wy);}
+            });
+            if([minX,minY,maxX,maxY].every(Number.isFinite))weatherMasks.unshift({left:minX-12,right:maxX+12,top:minY-12,bottom:maxY+12});
+          }
+          if(weatherEffects)weatherEffects.update(document.hidden?0:cameraDt,weatherMasks,innerWidth,innerHeight,renderer.getPixelRatio());
+          if(glassRain)glassRain.update(document.hidden?0:cameraDt,weatherMasks,innerWidth,innerHeight,renderer.getPixelRatio());
+        }
+        if(weatherAtmosphere){weatherAtmosphere.update(camera,controls.target,document.hidden?0:cameraDt);if(!weatherPreview&&weatherAtmosphere.isClear()){weatherAtmosphere.dispose();weatherAtmosphere=null;}}
         if (groundReflection) groundReflection.render(renderer, camera);
-        renderer.render(scene, camera);
+        if(glassRain)glassRain.render(renderer,scene,camera);else renderer.render(scene, camera);
       }
 
       buildLights();
       createWater(); // 水面平面 y≈0（半透明蓝灰，高金属低粗糙）
       loadEXRScene(currentSkyKey); // 预加载当前场景天空球（启动时若随时间同步已切到目标场景，则按该场景加载并缓存）
+      if (weatherPreview) {
+        timeSyncOn=false;updateTimeSyncBtn();switchSky(weatherPreview==='stars'?'night':'twilight');
+        weatherEffects=createWeatherEffects(THREE,{wind:weatherConcept==='wind-rain'||weatherConcept==='wind-snow'});scene.add(weatherEffects.group);weatherEffects.setKind(weatherPreview);
+        if(weatherConcept==='fog')weatherAtmosphere=createWeatherAtmosphere(THREE,scene);
+        glassRain=createGlassRain(THREE);glassRain.setKind(weatherPreview);
+        var badge=document.createElement('div');badge.textContent=(weatherConcept?'模拟示意 · '+({baseline:'正常基线',fog:'远景薄雾', 'wind-rain':'风雨 ↘', 'wind-snow':'风雪 ↘'}[weatherConcept])+' · 未连接 GPS':'模拟天气 · '+({none:'晴天基线',rain:'细雨',snow:'轻雪',stars:'晴夜星空'}[weatherPreview])+' · 未连接 GPS');badge.style.cssText='position:fixed;bottom:18px;left:22px;z-index:20;color:#c5d1de;background:#101923c9;padding:8px 14px;border:1px solid #ffffff20;border-radius:20px;font:14px sans-serif;pointer-events:none';document.body.appendChild(badge);
+        window.__weatherPreview={setKind:function(k){weatherEffects.setKind(k);glassRain.setKind(k);},state:weatherEffects.getState};
+      }
+      // Live weather never reads location in JavaScript. Native opt-in owns all I/O.
+      function applyLiveWeather() {
+        if(!weatherStore || weatherPreview)return;
+        var visual=weatherStore.getVisual({now:Date.now(),sceneNight:currentSkyKey==='night',timeSyncOn:timeSyncOn,manualOverride:!timeSyncOn});
+        if(weatherUi)weatherUi.updateVisual(visual);
+        if(visual.skyHint && timeSyncOn && currentSkyKey!==visual.skyHint)switchSky(visual.skyHint);
+        if(['rain','snow','stars'].indexOf(visual.effect)>=0 && !weatherEffects){weatherEffects=createWeatherEffects(THREE);scene.add(weatherEffects.group);}
+        if(weatherEffects){weatherEffects.setWind(visual.active?visual.wind.strength:0);weatherEffects.setStrength(visual.intensity);weatherEffects.setKind(visual.effect);}
+        if(visual.effect==='rain'&&!glassRain)glassRain=createGlassRain(THREE);
+        if(glassRain){glassRain.setStrength(visual.intensity);glassRain.setKind(visual.effect);if(visual.effect!=='rain'&&glassRain.getState().alpha===0){glassRain.dispose();glassRain=null;}}
+        if(weatherEffects&&['rain','snow','stars'].indexOf(visual.effect)<0&&weatherEffects.getState().visible.length===0){weatherEffects.dispose();weatherEffects=null;}
+        if(visual.effect==='fog'&&!weatherAtmosphere)weatherAtmosphere=createWeatherAtmosphere(THREE,scene);
+        if(weatherAtmosphere)weatherAtmosphere.setStrength(visual.effect==='fog'?visual.intensity:0);
+      }
+      if(!weatherPreview){
+        weatherStore=WeatherState.createStore();
+        weatherUi=mountWeatherUi(document.getElementById('drawerScroll'),window.AndroidWeatherBridge,function(state){var accepted=weatherStore.ingest(state);if(accepted){weatherLastCheck=-Infinity;applyLiveWeather();}return accepted;});
+        window.onNativeWeather=function(state){if(weatherUi)weatherUi.update(state);};
+      }
       initAudioSpectrum();
       initLyricPanel();
       initLightCard();
