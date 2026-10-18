@@ -1,0 +1,136 @@
+name: Light build (APK with credentials)
+
+# 鎵嬪姩瑙﹀彂锛氫粨搴?Actions -> "Light build (APK with credentials)" -> Run workflow
+# 鍑瘉鏉ヨ嚜浠撳簱 Secrets锛歅7_LIGHT_SDK_KEY / P7_LIGHT_ACCESS_KEY锛堜笉鍙鍥烇紝鍙湪鏈?job 鍐呮敞鍏ワ級
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: '瑕佹瀯寤虹殑鍒嗘敮 / 鏍囩 / 鎻愪氦锛堢暀绌?= 褰撳墠鍒嗘敮锛?
+        required: false
+        default: ''
+      run_js_tests:
+        description: '鏋勫缓鍓嶈繍琛?node 娴嬭瘯'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: light-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: assembleDebug with light credentials
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # 鍏煎鍑犵甯歌鍛藉悕锛涙寜瀹為檯鎯呭喌鍒犳帀涓嶉渶瑕佺殑鍗冲彲
+      LIGHT_SDK_KEY: ${{ secrets.P7_LIGHT_SDK_KEY || secrets.P7_LIGHT_SDKKEY || secrets.LIGHT_SDK_KEY || secrets.SDK_KEY }}
+      LIGHT_ACCESS_KEY: ${{ secrets.P7_LIGHT_ACCESS_KEY || secrets.P7_LIGHT_ACCESSKEY || secrets.LIGHT_ACCESS_KEY || secrets.ACCESS_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          fetch-depth: 1
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle (with cache)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Show toolchain
+        run: |
+          java -version
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}"
+          node --version
+
+      - name: Verify secrets are configured
+        run: |
+          if [ -z "${LIGHT_SDK_KEY}" ] || [ -z "${LIGHT_ACCESS_KEY}" ]; then
+            echo "::error::缂哄皯 Secrets銆傝鍒?Settings -> Secrets and variables -> Actions 娣诲姞浠撳簱 Secret锛歅7_LIGHT_SDK_KEY 涓?P7_LIGHT_ACCESS_KEY銆?
+            exit 1
+          fi
+          echo "SDK key 闀垮害: ${#LIGHT_SDK_KEY}"
+          echo "Access key 闀垮害: ${#LIGHT_ACCESS_KEY}"
+
+      - name: Inject local.properties
+        run: |
+          {
+            echo "sdk.dir=${ANDROID_SDK_ROOT}"
+            printf 'p7.light.sdkKey=%s\n' "${LIGHT_SDK_KEY}"
+            printf 'p7.light.accessKey=%s\n' "${LIGHT_ACCESS_KEY}"
+          } > local.properties
+          # 鍙墦鍗拌劚鏁忓悗鐨勭粨鏋勶紝閬垮厤鎶婂瘑閽ュ啓杩涙棩蹇?          sed 's/=.*/=<redacted>/' local.properties
+
+      - name: Run node tests
+        if: ${{ inputs.run_js_tests }}
+        run: node --test tests/*.test.*
+
+      - name: Assemble debug APK
+        run: ./gradlew assembleDebug --no-daemon --console=plain --stacktrace
+
+      - name: Verify credentials were baked in
+        run: |
+          f=app/build/generated/source/buildConfig/debug/com/xpeng/p7show/BuildConfig.java
+          test -f "$f" || { echo "::error::鎵句笉鍒?BuildConfig.java"; exit 1; }
+          if grep -q 'P7_LIGHT_SDK_KEY = ""' "$f"; then
+            echo "::error::BuildConfig 閲?SDK key 涓虹┖锛孲ecret 娌℃湁琚敞鍏?
+            exit 1
+          fi
+          if grep -q 'P7_LIGHT_ACCESS_KEY = ""' "$f"; then
+            echo "::error::BuildConfig 閲?access key 涓虹┖锛孲ecret 娌℃湁琚敞鍏?
+            exit 1
+          fi
+          echo "涓や釜鍑瘉閮藉凡鍐欏叆 BuildConfig锛堜笉鎵撳嵃鍊硷級"
+
+      - name: Collect APK
+        id: collect
+        run: |
+          mkdir -p out
+          apk="out/P7-SHOW-light-debug-${GITHUB_RUN_NUMBER}.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$apk"
+          sha=$(sha256sum "$apk" | cut -d' ' -f1)
+          ls -l out
+          echo "sha256=${sha}" >> "$GITHUB_OUTPUT"
+          echo "apk=${apk}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: p7-show-light-apk-${{ github.run_number }}
+          path: out/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Write run summary
+        run: |
+          apk="P7-SHOW-light-debug-${GITHUB_RUN_NUMBER}.apk"
+          sha="${{ steps.collect.outputs.sha256 }}"
+          {
+            echo "## 绾㈢豢鐏嚟璇佹瀯寤轰骇鐗?
+            echo ""
+            echo "- 鏂囦欢锛?{apk}"
+            echo "- 鍖呭悕锛歝om.xpeng.p7show锛堜笌宸插彂甯冩祴璇曞寘鐩稿悓锛屼絾绛惧悕鏄?CI 鐨?debug key锛?
+            echo "- SHA-256锛?{sha}"
+            echo ""
+            echo "### 瀹夎锛堢鍚嶄笉鍚岋紝蹇呴』鍏堝嵏杞芥棫鐗堟湰锛屼細娓呮帀杞︽紗/瑙嗚绛夎缃級"
+            echo '```bash'
+            echo "adb uninstall com.xpeng.p7show"
+            echo "adb install -r ${apk}"
+            echo "adb shell pm grant com.xpeng.p7show android.permission.ACCESS_FINE_LOCATION"
+            echo "adb shell am start -n com.xpeng.p7show/com.show.p7.MainActivity"
+            echo "adb logcat -s P7Light:V P7Show:V"
+            echo '```'
+            echo ""
+            echo "### 娉ㄦ剰"
+            echo "- 瀵嗛挜浼氳缂栬瘧杩?APK 鐨?BuildConfig锛屽彲琚彁鍙栵紱artifact 璇峰嬁鍏紑鍒嗗彂銆?
+            echo "- 鍘熺敓 SDK 鐨勬暟鎹 tli.mojoxing.com 鐩墠鎷掔粷杩炴帴锛涘嵆浣挎瀯寤烘垚鍔燂紝棰勮涔熷彧鑳界湅鍒?nativeInit/nativeGetLightInfo 鐨勭姸鎬佺爜锛屾湭蹇呮湁鐪熷疄璇荤銆?
+          } >> "$GITHUB_STEP_SUMMARY"
