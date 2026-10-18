@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 悬浮条布局：尺寸/字号照搬原包 res/layout/view_nav_bar.xml -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/overlayRoot"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:background="@drawable/bg_light_overlay"
+    android:paddingLeft="5dp"
+    android:paddingRight="13dp"
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp">
+
+    <RelativeLayout
+        android:layout_width="66dp"
+        android:layout_height="66dp"
+        android:background="@drawable/bg_speed_circle">
+
+        <TextView
+            android:id="@+id/tvSpeed"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerHorizontal="true"
+            android:layout_marginTop="9dp"
+            android:text="--"
+            android:textColor="#3364F5"
+            android:textSize="34sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvSpeedUnit"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentBottom="true"
+            android:layout_centerHorizontal="true"
+            android:layout_marginBottom="5dp"
+            android:text="km/h"
+            android:textColor="#3364F5"
+            android:textSize="8sp" />
+    </RelativeLayout>
+
+    <TextView
+        android:id="@+id/tvDistance"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:paddingLeft="8dp"
+        android:text=""
+        android:textColor="#FFFFFF"
+        android:textSize="42sp"
+        android:maxLines="1" />
+
+    <TextView
+        android:id="@+id/tvDistanceUnit"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:paddingLeft="2dp"
+        android:paddingTop="16dp"
+        android:text="米"
+        android:textColor="#FFFFFF"
+        android:textSize="16sp"
+        android:maxLines="1" />
+
+    <ImageView
+        android:id="@+id/ivLeft"
+        android:layout_width="50dp"
+        android:layout_height="50dp"
+        android:layout_marginLeft="5dp"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/tvLeftSec"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:paddingLeft="8dp"
+        android:text=""
+        android:textColor="#00B849"
+        android:textSize="48sp"
+        android:maxLines="1" />
+
+    <ImageView
+        android:id="@+id/ivStraight"
+        android:layout_width="50dp"
+        android:layout_height="50dp"
+        android:layout_marginLeft="8dp"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/tvStraightSec"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:paddingLeft="8dp"
+        android:text=""
+        android:textColor="#F72D2D"
+        android:textSize="48sp"
+        android:maxLines="1" />
+</LinearLayout>

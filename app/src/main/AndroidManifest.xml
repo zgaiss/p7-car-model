@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- 红绿灯悬浮条：系统悬浮窗权限由用户在设置页手动授予 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- 车机歌词读取：XuiServiceManager -> IXUIService -> IMediaCenter 所需权限 -->
     <uses-permission android:name="com.xiaopeng.xuimanager.permission.XUI_MEDIACENTER" />
 
@@ -27,6 +29,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name="com.show.p7.LightOverlayService"
+            android:exported="false" />
 
     </application>
 </manifest>

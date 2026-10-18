@@ -15,8 +15,11 @@ import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.Parcel;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.View;
 import android.view.WindowInsets;
@@ -69,6 +72,48 @@ public class MainActivity extends Activity {
     private static final double F_MAX = 10000.0;
 
     private WebView webView;
+
+    /**
+     * 渲染看门狗：WebView 的合成器偶发卡死时（JS 还在跑、屏幕停在上次出帧），
+     * 页面里的 requestAnimationFrame 计数会停止增长。连续 3 次（约 6s）不增长就 reload 页面恢复。
+     */
+    private final Handler watchdogHandler = new Handler(Looper.getMainLooper());
+    private boolean watchdogOn = false;
+    private long rafLast = -1L;
+    private int rafMiss = 0;
+    private final Runnable rafWatchdog = new Runnable() {
+        @Override
+        public void run() {
+            if (!watchdogOn || webView == null) {
+                return;
+            }
+            webView.evaluateJavascript("(window.__raf||0)", value -> {
+                long cur = -1L;
+                try {
+                    cur = (long) Double.parseDouble(String.valueOf(value).replace("\"", "").trim());
+                } catch (Throwable ignored) {
+                }
+                if (cur < 0) {
+                    rafMiss = 0;
+                } else if (cur == rafLast) {
+                    rafMiss++;
+                    if (rafMiss >= 3) {
+                        rafMiss = 0;
+                        rafLast = -1L;
+                        Log.w("P7Show", "render watchdog: rAF stalled, reloading webview");
+                        try {
+                            webView.reload();
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                } else {
+                    rafLast = cur;
+                    rafMiss = 0;
+                }
+            });
+            watchdogHandler.postDelayed(this, 2000);
+        }
+    };
 
     /** 红绿灯倒计时 SDK 会话（路径A：SDK 初始化 + 定位上报 + 500ms 灯态轮询） */
     private LightSdkController lightController;
@@ -167,11 +212,65 @@ public class MainActivity extends Activity {
             lightController.fetchWechatQrCode();
             return "{\"ok\":true,\"message\":\"pending\"}";
         }
+
+        /** JS 桥：开关红绿灯悬浮条（仿原包悬浮窗）。没有悬浮窗权限时拉起系统授权页。 */
+        @JavascriptInterface
+        public String toggleOverlay() {
+            if (LightOverlayService.isShowing()) {
+                stopOverlay();
+                return "{\"ok\":true,\"on\":false}";
+            }
+            if (!Settings.canDrawOverlays(MainActivity.this)) {
+                try {
+                    Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:" + getPackageName()));
+                    startActivity(i);
+                } catch (Throwable ignored) {
+                }
+                return "{\"ok\":false,\"on\":false,\"needPermission\":true}";
+            }
+            startOverlay();
+            return "{\"ok\":true,\"on\":true}";
+        }
+
+        /** JS 桥：查询悬浮条状态 */
+        @JavascriptInterface
+        public String getOverlayState() {
+            boolean can = Settings.canDrawOverlays(MainActivity.this);
+            return "{\"on\":" + LightOverlayService.isShowing() + ",\"can\":" + can + "}";
+        }
+    }
+
+    /** 打开悬浮条：把 SDK 数据同时推给悬浮窗服务 */
+    private void startOverlay() {
+        LightSdkController.sharedListener = new LightSdkController.DataListener() {
+            @Override
+            public void onLightData(String json) {
+                LightOverlayService.pushData(json);
+            }
+        };
+        try {
+            Intent i = new Intent(this, LightOverlayService.class);
+            i.setAction(LightOverlayService.ACTION_SHOW);
+            startService(i);
+        } catch (Throwable t) {
+            Log.w("P7Show", "start overlay failed: " + t.getMessage());
+        }
+    }
+
+    /** 关闭悬浮条 */
+    private void stopOverlay() {
+        LightSdkController.sharedListener = null;
+        try {
+            Intent i = new Intent(this, LightOverlayService.class);
+            i.setAction(LightOverlayService.ACTION_HIDE);
+            startService(i);
+        } catch (Throwable ignored) {
+        }
     }
 
     /** Weather settings bridge. Enabling never opens the Android permission prompt. */
-    public class AndroidWeatherBridge {
-        @JavascriptInterface
+    public class AndroidWeatherBridge {        @JavascriptInterface
         public String getWeatherState() {
             return weatherController == null ? "{\"enabled\":false,\"status\":\"disabled\"}" : weatherController.getState();
         }
@@ -191,8 +290,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 启动红绿灯 SDK 会话（幂等；onPageFinished / onResume / 定位授权后调用） */
-    private void startLightController() {
+    /** 启动红绿灯 SDK 会话（幂等；onPageFinished / onResume / 定位授权后调用） */    private void startLightController() {
         if (lightController != null) {
             lightController.start();
         }
@@ -1019,9 +1117,16 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        try {
+            if (webView != null) {
+                webView.resumeTimers();
+            }
+        } catch (Throwable ignored) {
+        }
         if (webView != null) {
             webView.onResume();
         }
+        LightOverlayService.setAppForeground(true);
         // 恢复采集（onPause 已停读释放；权限已授予则重建）
         startMicCaptureIfPermitted();
         // 恢复车机歌词轮询
@@ -1029,16 +1134,35 @@ public class MainActivity extends Activity {
         // 恢复红绿灯 SDK 会话（定位监听 + 灯态轮询；start 幂等）
         startLightController();
         if (weatherController != null) weatherController.onResume();
+        // 渲染看门狗：给页面 5s 预热后开始巡检 rAF 心跳
+        watchdogOn = true;
+        rafLast = -1L;
+        rafMiss = 0;
+        watchdogHandler.removeCallbacks(rafWatchdog);
+        watchdogHandler.postDelayed(rafWatchdog, 5000);
     }
 
     @Override
     protected void onPause() {
+        watchdogOn = false;
+        watchdogHandler.removeCallbacks(rafWatchdog);
         if (weatherController != null) weatherController.onPause();
         stopMicCaptureReadLoop(); // 停止后台读取并释放 AudioRecord
         stopLyricPolling();       // 停止歌词轮询
-        stopLightController();    // 停止红绿灯 SDK 会话（定位监听 + 灯态轮询）
+        LightOverlayService.setAppForeground(false);
+        if (!LightOverlayService.isEnabled()) {
+            stopLightController(); // 悬浮条开着时保持 SDK 会话，切到别的应用也能继续读秒
+            LightSdkController.sharedListener = null;
+        }
         if (webView != null) {
             webView.onPause();
+            if (LightOverlayService.isEnabled()) {
+                // 悬浮条开启时后台不再需要渲染：暂停 WebView 定时器，降低 WebView GPU 崩溃概率
+                try {
+                    webView.pauseTimers();
+                } catch (Throwable ignored) {
+                }
+            }
         }
         super.onPause();
     }
@@ -1048,6 +1172,7 @@ public class MainActivity extends Activity {
         if (weatherController != null) weatherController.destroy();
         releaseMicCapture();
         stopLyricPolling();
+        stopOverlay();
         stopLightController(); // 停止红绿灯 SDK 会话并释放原生会话
         if (webView != null) {
             webView.loadUrl("about:blank");

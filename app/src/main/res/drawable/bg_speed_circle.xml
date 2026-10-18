@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 车速圈：原包 bg_lvbo_speed_blue（白底 + 蓝环） -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="#FFFFFF" />
+            <stroke android:width="3dp" android:color="#3364F5" />
+        </shape>
+    </item>
+</layer-list>
