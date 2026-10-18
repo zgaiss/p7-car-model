@@ -1,16 +1,17 @@
 name: Light build (APK with credentials)
 
-# 鎵嬪姩瑙﹀彂锛氫粨搴?Actions -> "Light build (APK with credentials)" -> Run workflow
-# 鍑瘉鏉ヨ嚜浠撳簱 Secrets锛歅7_LIGHT_SDK_KEY / P7_LIGHT_ACCESS_KEY锛堜笉鍙鍥烇紝鍙湪鏈?job 鍐呮敞鍏ワ級
+# Manual run: repo Actions -> "Light build (APK with credentials)" -> Run workflow
+# Credentials come from repository secrets P7_LIGHT_SDK_KEY / P7_LIGHT_ACCESS_KEY.
+# Secret values cannot be read back; they are only injected inside this job.
 on:
   workflow_dispatch:
     inputs:
       ref:
-        description: '瑕佹瀯寤虹殑鍒嗘敮 / 鏍囩 / 鎻愪氦锛堢暀绌?= 褰撳墠鍒嗘敮锛?
+        description: 'Branch / tag / commit to build (empty = current ref)'
         required: false
         default: ''
       run_js_tests:
-        description: '鏋勫缓鍓嶈繍琛?node 娴嬭瘯'
+        description: 'Run node tests before building'
         type: boolean
         default: true
 
@@ -27,7 +28,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      # 鍏煎鍑犵甯歌鍛藉悕锛涙寜瀹為檯鎯呭喌鍒犳帀涓嶉渶瑕佺殑鍗冲彲
       LIGHT_SDK_KEY: ${{ secrets.P7_LIGHT_SDK_KEY || secrets.P7_LIGHT_SDKKEY || secrets.LIGHT_SDK_KEY || secrets.SDK_KEY }}
       LIGHT_ACCESS_KEY: ${{ secrets.P7_LIGHT_ACCESS_KEY || secrets.P7_LIGHT_ACCESSKEY || secrets.LIGHT_ACCESS_KEY || secrets.ACCESS_KEY }}
     steps:
@@ -55,11 +55,11 @@ jobs:
       - name: Verify secrets are configured
         run: |
           if [ -z "${LIGHT_SDK_KEY}" ] || [ -z "${LIGHT_ACCESS_KEY}" ]; then
-            echo "::error::缂哄皯 Secrets銆傝鍒?Settings -> Secrets and variables -> Actions 娣诲姞浠撳簱 Secret锛歅7_LIGHT_SDK_KEY 涓?P7_LIGHT_ACCESS_KEY銆?
+            echo "::error::Missing secrets. Add repository secrets P7_LIGHT_SDK_KEY and P7_LIGHT_ACCESS_KEY under Settings -> Secrets and variables -> Actions."
             exit 1
           fi
-          echo "SDK key 闀垮害: ${#LIGHT_SDK_KEY}"
-          echo "Access key 闀垮害: ${#LIGHT_ACCESS_KEY}"
+          echo "SDK key length: ${#LIGHT_SDK_KEY}"
+          echo "Access key length: ${#LIGHT_ACCESS_KEY}"
 
       - name: Inject local.properties
         run: |
@@ -68,7 +68,7 @@ jobs:
             printf 'p7.light.sdkKey=%s\n' "${LIGHT_SDK_KEY}"
             printf 'p7.light.accessKey=%s\n' "${LIGHT_ACCESS_KEY}"
           } > local.properties
-          # 鍙墦鍗拌劚鏁忓悗鐨勭粨鏋勶紝閬垮厤鎶婂瘑閽ュ啓杩涙棩蹇?          sed 's/=.*/=<redacted>/' local.properties
+          sed 's/=.*/=<redacted>/' local.properties
 
       - name: Run node tests
         if: ${{ inputs.run_js_tests }}
@@ -80,16 +80,16 @@ jobs:
       - name: Verify credentials were baked in
         run: |
           f=app/build/generated/source/buildConfig/debug/com/xpeng/p7show/BuildConfig.java
-          test -f "$f" || { echo "::error::鎵句笉鍒?BuildConfig.java"; exit 1; }
+          test -f "$f" || { echo "::error::BuildConfig.java not found"; exit 1; }
           if grep -q 'P7_LIGHT_SDK_KEY = ""' "$f"; then
-            echo "::error::BuildConfig 閲?SDK key 涓虹┖锛孲ecret 娌℃湁琚敞鍏?
+            echo "::error::SDK key is empty in BuildConfig - secret was not injected"
             exit 1
           fi
           if grep -q 'P7_LIGHT_ACCESS_KEY = ""' "$f"; then
-            echo "::error::BuildConfig 閲?access key 涓虹┖锛孲ecret 娌℃湁琚敞鍏?
+            echo "::error::Access key is empty in BuildConfig - secret was not injected"
             exit 1
           fi
-          echo "涓や釜鍑瘉閮藉凡鍐欏叆 BuildConfig锛堜笉鎵撳嵃鍊硷級"
+          echo "Both light credentials are present in BuildConfig (values not printed)"
 
       - name: Collect APK
         id: collect
@@ -115,13 +115,13 @@ jobs:
           apk="P7-SHOW-light-debug-${GITHUB_RUN_NUMBER}.apk"
           sha="${{ steps.collect.outputs.sha256 }}"
           {
-            echo "## 绾㈢豢鐏嚟璇佹瀯寤轰骇鐗?
+            echo "## Light build artifact"
             echo ""
-            echo "- 鏂囦欢锛?{apk}"
-            echo "- 鍖呭悕锛歝om.xpeng.p7show锛堜笌宸插彂甯冩祴璇曞寘鐩稿悓锛屼絾绛惧悕鏄?CI 鐨?debug key锛?
-            echo "- SHA-256锛?{sha}"
+            echo "- file: ${apk}"
+            echo "- package: com.xpeng.p7show (same id as release, but signed with the CI debug key)"
+            echo "- sha256: ${sha}"
             echo ""
-            echo "### 瀹夎锛堢鍚嶄笉鍚岋紝蹇呴』鍏堝嵏杞芥棫鐗堟湰锛屼細娓呮帀杞︽紗/瑙嗚绛夎缃級"
+            echo "### Install (different signature - uninstall the old app first; this wipes settings)"
             echo '```bash'
             echo "adb uninstall com.xpeng.p7show"
             echo "adb install -r ${apk}"
@@ -130,7 +130,7 @@ jobs:
             echo "adb logcat -s P7Light:V P7Show:V"
             echo '```'
             echo ""
-            echo "### 娉ㄦ剰"
-            echo "- 瀵嗛挜浼氳缂栬瘧杩?APK 鐨?BuildConfig锛屽彲琚彁鍙栵紱artifact 璇峰嬁鍏紑鍒嗗彂銆?
-            echo "- 鍘熺敓 SDK 鐨勬暟鎹 tli.mojoxing.com 鐩墠鎷掔粷杩炴帴锛涘嵆浣挎瀯寤烘垚鍔燂紝棰勮涔熷彧鑳界湅鍒?nativeInit/nativeGetLightInfo 鐨勭姸鎬佺爜锛屾湭蹇呮湁鐪熷疄璇荤銆?
+            echo "### Notes"
+            echo "- Keys are compiled into BuildConfig and can be extracted; do not publish this artifact."
+            echo "- The native data host tli.mojoxing.com currently refuses connections, so nativeInit/status codes may appear without real countdown data."
           } >> "$GITHUB_STEP_SUMMARY"
