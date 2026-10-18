@@ -1,0 +1,136 @@
+name: Light build (APK with credentials)
+
+# Manual run: repo Actions -> "Light build (APK with credentials)" -> Run workflow
+# Credentials come from repository secrets P7_LIGHT_SDK_KEY / P7_LIGHT_ACCESS_KEY.
+# Secret values cannot be read back; they are only injected inside this job.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch / tag / commit to build (empty = current ref)'
+        required: false
+        default: ''
+      run_js_tests:
+        description: 'Run node tests before building'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: light-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: assembleDebug with light credentials
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      LIGHT_SDK_KEY: ${{ secrets.P7_LIGHT_SDK_KEY || secrets.P7_LIGHT_SDKKEY || secrets.LIGHT_SDK_KEY || secrets.SDK_KEY }}
+      LIGHT_ACCESS_KEY: ${{ secrets.P7_LIGHT_ACCESS_KEY || secrets.P7_LIGHT_ACCESSKEY || secrets.LIGHT_ACCESS_KEY || secrets.ACCESS_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          fetch-depth: 1
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle (with cache)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Show toolchain
+        run: |
+          java -version
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}"
+          node --version
+
+      - name: Verify secrets are configured
+        run: |
+          if [ -z "${LIGHT_SDK_KEY}" ] || [ -z "${LIGHT_ACCESS_KEY}" ]; then
+            echo "::error::Missing secrets. Add repository secrets P7_LIGHT_SDK_KEY and P7_LIGHT_ACCESS_KEY under Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+          echo "SDK key length: ${#LIGHT_SDK_KEY}"
+          echo "Access key length: ${#LIGHT_ACCESS_KEY}"
+
+      - name: Inject local.properties
+        run: |
+          {
+            echo "sdk.dir=${ANDROID_SDK_ROOT}"
+            printf 'p7.light.sdkKey=%s\n' "${LIGHT_SDK_KEY}"
+            printf 'p7.light.accessKey=%s\n' "${LIGHT_ACCESS_KEY}"
+          } > local.properties
+          sed 's/=.*/=<redacted>/' local.properties
+
+      - name: Run node tests
+        if: ${{ inputs.run_js_tests }}
+        run: node --test tests/*.test.*
+
+      - name: Assemble debug APK
+        run: ./gradlew assembleDebug --no-daemon --console=plain --stacktrace
+
+      - name: Verify credentials were baked in
+        run: |
+          f=app/build/generated/source/buildConfig/debug/com/xpeng/p7show/BuildConfig.java
+          test -f "$f" || { echo "::error::BuildConfig.java not found"; exit 1; }
+          if grep -q 'P7_LIGHT_SDK_KEY = ""' "$f"; then
+            echo "::error::SDK key is empty in BuildConfig - secret was not injected"
+            exit 1
+          fi
+          if grep -q 'P7_LIGHT_ACCESS_KEY = ""' "$f"; then
+            echo "::error::Access key is empty in BuildConfig - secret was not injected"
+            exit 1
+          fi
+          echo "Both light credentials are present in BuildConfig (values not printed)"
+
+      - name: Collect APK
+        id: collect
+        run: |
+          mkdir -p out
+          apk="out/P7-SHOW-light-debug-${GITHUB_RUN_NUMBER}.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$apk"
+          sha=$(sha256sum "$apk" | cut -d' ' -f1)
+          ls -l out
+          echo "sha256=${sha}" >> "$GITHUB_OUTPUT"
+          echo "apk=${apk}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: p7-show-light-apk-${{ github.run_number }}
+          path: out/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Write run summary
+        run: |
+          apk="P7-SHOW-light-debug-${GITHUB_RUN_NUMBER}.apk"
+          sha="${{ steps.collect.outputs.sha256 }}"
+          {
+            echo "## Light build artifact"
+            echo ""
+            echo "- file: ${apk}"
+            echo "- package: com.xpeng.p7show (same id as release, but signed with the CI debug key)"
+            echo "- sha256: ${sha}"
+            echo ""
+            echo "### Install (different signature - uninstall the old app first; this wipes settings)"
+            echo '```bash'
+            echo "adb uninstall com.xpeng.p7show"
+            echo "adb install -r ${apk}"
+            echo "adb shell pm grant com.xpeng.p7show android.permission.ACCESS_FINE_LOCATION"
+            echo "adb shell am start -n com.xpeng.p7show/com.show.p7.MainActivity"
+            echo "adb logcat -s P7Light:V P7Show:V"
+            echo '```'
+            echo ""
+            echo "### Notes"
+            echo "- Keys are compiled into BuildConfig and can be extracted; do not publish this artifact."
+            echo "- The native data host tli.mojoxing.com currently refuses connections, so nativeInit/status codes may appear without real countdown data."
+          } >> "$GITHUB_STEP_SUMMARY"

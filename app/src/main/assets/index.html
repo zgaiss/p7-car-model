@@ -31,27 +31,82 @@
   }
   #clockTime { font-size: 7vw; font-weight: 600; letter-spacing: 0.05em; }
   #clockDate { font-size: 2.6vw; opacity: 0.92; margin-top: 0.2vw; }
-  /* 红绿灯倒计时卡片（左上角、时钟下方）：黑色半透明底、圆角、小号字体，只读展示不拦截 3D 交互 */
+  /* 红绿灯横条：尺寸/字号照搬原包 res/layout/view_nav_bar.xml（1dp≈0.0833vw），整体再缩到 0.62 */
   #lightCard {
     position: fixed;
-    top: 14.6vw; /* 比原 12.2vw 再下移约 2.4vw（本轮 UI 微调） */
+    top: 14.6vw;
     left: 2.4vw;
     z-index: 5;
-    display: flex;
-    align-items: center;
-    gap: 0.7vw;
-    background: rgba(0,0,0,0.55);
-    border: 1px solid rgba(255,255,255,0.18);
-    border-radius: 1.4vw;
-    padding: 0.7vw 1.2vw;
-    font-size: 1.35vw;
-    letter-spacing: 0.08vw;
-    color: rgba(255,255,255,0.92);
-    line-height: 1.2;
+    display: none;
+    background: #000;              /* bg_float_nav_n: 纯黑 + 15dp 圆角 */
+    border-radius: 1.25vw;
+    padding: 0 1.08vw 0.5vw 0.42vw;
+    color: #fff;
     pointer-events: none;
     -webkit-user-select: none;
     user-select: none;
+    transform: scale(0.62);
+    transform-origin: top left;
   }
+  #lightCard.show { display: block; }
+  #lightIdle { display: flex; align-items: center; gap: 0.7vw; font-size: 1.35vw; padding: 0.8vw 0; }
+  #lightCard.live #lightIdle { display: none; }
+  #lightCard:not(.live) #lightLive { display: none; }
+  #lightCard.stale #lightLive { opacity: 0.62; }
+  #lightLive { display: flex; flex-direction: column; }
+  .lHero { display: flex; align-items: center; height: 6.17vw; }
+  .lMain {
+    width: 5.5vw; height: 5.5vw; flex: none; border-radius: 50%;
+    background: url(light/bg_lvbo_speed_blue.webp) center/100% 100% no-repeat;
+    color: #3364F5;
+    display: flex; flex-direction: column; align-items: center;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    padding-top: 0.83vw; box-sizing: border-box;
+  }
+  .lMain b { font-size: 3vw; font-weight: 700; letter-spacing: -0.04vw; }
+  .lMain i { font-style: normal; font-size: 0.67vw; font-weight: 500; margin-top: auto; margin-bottom: 0.5vw; letter-spacing: 0.02vw; }
+  .lDist { font-size: 3.5vw; font-weight: 400; padding-left: 0.67vw; white-space: nowrap; }
+  .lDist i { font-style: normal; font-size: 1.33vw; padding-left: 0.2vw; }
+  .lChips { display: flex; align-items: center; }
+  .chip { display: flex; align-items: center; }
+  .chip img.light-ic { width: 4.17vw; height: 4.17vw; display: block; flex: none; margin-left: 0.42vw; }
+  .chip + .chip img.light-ic { margin-left: 0.67vw; }
+  .chip .sec { font-size: 4vw; font-weight: 400; font-variant-numeric: tabular-nums; padding-left: 0.67vw; }
+  .chip .sec.txt { font-size: 2.5vw; font-weight: 500; }
+  .chip .dot {
+    width: 4.17vw; height: 4.17vw; border-radius: 50%; flex: none; margin-left: 0.42vw;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 2vw; font-weight: 700; color: #fff;
+  }
+  .chip.red .dot { background: #f72d2d; }
+  .chip.green .dot { background: #00b849; }
+  .chip.yellow .dot { background: #e6be23; color: #1a1a1a; }
+  .chip.red .sec { color: #f72d2d; }
+  .chip.green .sec { color: #00b849; }
+  .chip.yellow .sec { color: #f0cf4a; }
+  .lFoot { display: flex; align-items: center; padding: 0 0 0.2vw 0.42vw; }
+  .lLanes {
+    display: flex; align-items: center; gap: 0.3vw;
+    background: #1a6fd0; border-radius: 0.45vw; padding: 0.2vw 0.4vw;
+    line-height: 1; color: #fff;
+  }
+  .lLanes img { height: 2.3vw; width: auto; display: block; }
+  .lLanes .lane-txt { font-size: 1.5vw; letter-spacing: 0.05vw; }
+  .lLanes.empty { display: none; }
+  .lLimit { flex: none; display: flex; align-items: center; justify-content: center; margin-left: 0.6vw; }
+  .lLimit img { width: 3.7vw; height: 3.7vw; display: block; }
+  .lLimit.fallback {
+    width: 3.6vw; height: 3.6vw; border-radius: 50%;
+    background: #fff; border: 0.3vw solid #d92f2f; color: #14171b;
+    font-size: 1.7vw; font-weight: 700; font-variant-numeric: tabular-nums;
+  }
+  .lLimit.empty { display: none; }
+  .lHint { margin-left: 0.6vw; font-size: 1.35vw; font-weight: 600; letter-spacing: 0.02vw; white-space: nowrap; }
+  .lHint:empty { display: none; }
+  .lHint.ok { color: #00b849; }
+  .lHint.warn { color: #f72d2d; }
+  .lHint.wait { color: #f0cf4a; }
   #lightDot {
     width: 1.5vw;
     height: 1.5vw;
@@ -316,10 +371,24 @@
     <div id="clockDate"></div>
   </div>
 
-  <!-- 红绿灯倒计时卡片（路径A：SDK 原生层推送 window.__lightData 驱动；未就绪显示占位） -->
+  <!-- 红绿灯横条（路径A：原生推送 window.__lightData；仿原包 view_nav_bar.xml） -->
   <div id="lightCard">
-    <span id="lightDot" class="off"></span>
-    <span id="lightText">红绿灯服务未就绪</span>
+    <div id="lightIdle">
+      <span id="lightDot" class="off"></span>
+      <span id="lightText">红绿灯服务未就绪</span>
+    </div>
+    <div id="lightLive">
+      <div class="lHero">
+        <div class="lMain" id="lMain"><b>--</b><i>km/h</i></div>
+        <div class="lDist" id="lightDist"></div>
+        <div class="lChips" id="lightChips"></div>
+      </div>
+      <div class="lFoot">
+        <div class="lLanes empty" id="lightLanes"></div>
+        <div class="lLimit empty" id="lightSpd"></div>
+        <span class="lHint" id="lightHint"></span>
+      </div>
+    </div>
   </div>
 
   <!-- 右下方歌曲信息（歌名 + 歌手，两行靠右，位于底部频谱条上方；初始隐藏，有歌词数据时显示） -->
@@ -346,6 +415,8 @@
         <option value="bands">彩色波带</option><option value="ribbon">渐变丝带</option><option value="terrain">多层山脊</option><option value="led">彩色柱状</option>
       </select>
       <button id="drawerLightTrafficBtn" class="skyBtn">红绿灯倒计时：未激活</button>
+      <!-- 红绿灯悬浮条开关（仿原包悬浮窗） -->
+      <button id="drawerOverlayBtn" class="skyBtn">红绿灯悬浮窗：关</button>
       <!-- 微信扫码绑定激活二维码展示区（默认隐藏；点击红绿灯按钮后显示） -->
       <div id="lightQrBox" style="display:none;">
         <img id="lightQrImg" alt="微信绑定二维码" />
@@ -407,9 +478,19 @@
 
       var camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.01, 1000); // viewer: new PerspectiveCamera(50, aspect, 0.01, 1000)
 
-      var renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); // B项：alpha 透明画布，歌词位于车模后
+      var renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true }); // 关闭 MSAA：多采样缓冲在高分屏上会让部分驱动分配失败；靠像素比保证边缘质量
       renderer.setClearColor(0x000000, 0); // B项：完全透明，露出 body 深色背景
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      // 后备缓冲预算：2400 宽面板按 dpr=2 会申请 2400x1200 以上的多采样缓冲，
+      // 部分厂商 WebView 的 Adreno 驱动分配失败时不是降级而是直接段错误（实测华为平板必崩）。
+      // 这里按总像素封顶，超出时等比下调像素比，保证既有清晰度又不越过驱动的安全线。
+      var MAX_DRAW_PIXELS = 2400000;
+      function applyDrawPixelBudget() {
+        var dpr = Math.min(window.devicePixelRatio || 1, 2);
+        var pixels = window.innerWidth * window.innerHeight * dpr * dpr;
+        if (pixels > MAX_DRAW_PIXELS) dpr *= Math.sqrt(MAX_DRAW_PIXELS / pixels);
+        renderer.setPixelRatio(dpr);
+      }
+      applyDrawPixelBudget();
       renderer.setSize(window.innerWidth, window.innerHeight);
       if(weatherPreview)renderer.debug.onShaderError=function(gl,program,vs,fs){var d=document.createElement('pre');d.style.cssText='position:fixed;inset:0;z-index:999;background:black;color:red';d.textContent=gl.getProgramInfoLog(program)+'\n'+gl.getShaderInfoLog(vs)+'\n'+gl.getShaderInfoLog(fs);document.body.appendChild(d);};
       renderer.useLegacyLights = false; // 物理光照模式，对应新版 three 默认；Neutral 环境 PointLight 强度 900 依赖此模式
@@ -1250,18 +1331,63 @@
       // 数据链路：原生 LightSdkController 每 500ms 推送 window.__lightData = {ready, activateNeeded, status, ts, lights[]}；
       // 覆盖式赋值无法监听属性变化，沿用轮询模式（500ms 节流）更新左上角卡片与设置页按钮状态。
       var lightCardEl = null, lightDotEl = null, lightTextEl = null;
-      var drawerTrafficBtn = null;
+      var lMainEl = null, lightDistEl = null, lightChipsEl = null, lightLanesEl = null, lightSpdEl = null;
+      var lightHintEl = null;
+      var lightRowSig = '', lightSecEls = [], lightShownLights = [], lastLiveData = null, lastLiveTs = 0, idleSince = 0;
+      var drawerTrafficBtn = null, overlayBtn = null;
       var lightQrBoxEl = null, lightQrImgEl = null, lightQrStatusEl = null;
       var lastLightPoll = 0;
       var lastActivateTs = 0;
       var lastQrDataTs = 0;
       var LIGHT_DOT_CLASS = { 1: 'red', 2: 'green', 3: 'yellow', 4: 'yellow' }; // state: 1红/2绿/3黄/4黄闪
       var LIGHT_NAME = { 1: '红', 2: '绿', 3: '黄', 4: '黄闪' };
+      var LIGHT_ARROW = { 1: '←', 2: '↑', 3: '→', 4: '↺' };
+      // 复用原包图标（assets/light/）
+      var LANE_ICON = {
+        0: 'icon_lane_straight', 1: 'icon_lane_left', 3: 'icon_lane_right',
+        2: 'icon_lane_straight_left', 4: 'icon_lane_straight_right', 6: 'icon_lane_left_right',
+        7: 'icon_lane_straight_left_right', 5: 'icon_lane_straight_back',
+        9: 'icon_lane_straight_back', 11: 'icon_lane_left_back', 15: 'icon_lane_left_right_back',
+        18: 'icon_lane_bus', 19: 'icon_lane_empty', 20: 'icon_lane_kebian', 21: 'icon_lane_chaoxi'
+      };
+      var LANE_GLYPH = {
+        0: '↑', 1: '←', 2: '←↑', 3: '→', 4: '↑→', 5: '⤺', 6: '←→', 7: '←↑→',
+        8: '→⤺', 9: '↑⤺', 10: '↑→⤺', 11: '←⤺', 12: '→⤺', 13: '←↑⤺',
+        14: '→⤺', 15: '←→⤺', 16: '↑→⤺', 17: '←→⤺', 18: '巴士', 19: '', 20: '◇', 21: '⇄'
+      };
+      var LIGHT_ICON_DIR = { 1: 'left', 2: 'straight' };
+      var LIGHT_ICON_STATE = { 1: 'red', 2: 'green', 3: 'yellow', 4: 'yellow' };
+      var LIMIT_ICON = { 30: 1, 40: 1, 50: 1, 60: 1, 70: 1, 80: 1, 90: 1, 100: 1, 110: 1, 120: 1 };
       function initLightCard() {
         lightCardEl = document.getElementById('lightCard');
         lightDotEl = document.getElementById('lightDot');
         lightTextEl = document.getElementById('lightText');
+        lMainEl = document.getElementById('lMain');
+        lightDistEl = document.getElementById('lightDist');
+        lightChipsEl = document.getElementById('lightChips');
+        lightLanesEl = document.getElementById('lightLanes');
+        lightSpdEl = document.getElementById('lightSpd');
+        lightHintEl = document.getElementById('lightHint');
         drawerTrafficBtn = document.getElementById('drawerLightTrafficBtn');
+        overlayBtn = document.getElementById('drawerOverlayBtn');
+        if (overlayBtn) {
+          overlayBtn.addEventListener('click', function (ev) {
+            if (ev && ev.preventDefault) ev.preventDefault();
+            resetTimer();
+            try {
+              if (window.AndroidLightBridge && window.AndroidLightBridge.toggleOverlay) {
+                var j = null;
+                try { j = JSON.parse(window.AndroidLightBridge.toggleOverlay()); } catch (e) { j = null; }
+                if (j && j.needPermission) setOverlayText('红绿灯悬浮窗：需授权');
+                else if (j) setOverlayText('红绿灯悬浮窗：' + (j.on ? '开' : '关'));
+              } else {
+                setOverlayText('红绿灯悬浮窗：桥未就绪');
+              }
+            } catch (e) {
+              setOverlayText('红绿灯悬浮窗：调用失败');
+            }
+          });
+        }
         lightQrBoxEl = document.getElementById('lightQrBox');
         lightQrImgEl = document.getElementById('lightQrImg');
         lightQrStatusEl = document.getElementById('lightQrStatus');
@@ -1298,40 +1424,195 @@
       function setLightCardText(t) {
         if (lightTextEl) lightTextEl.textContent = t;
       }
+      function setOverlayText(t) {
+        if (overlayBtn) overlayBtn.textContent = t;
+      }
+      function syncOverlayState() {
+        if (!overlayBtn || !window.AndroidLightBridge || !window.AndroidLightBridge.getOverlayState) return;
+        try {
+          var j = JSON.parse(window.AndroidLightBridge.getOverlayState());
+          if (j) setOverlayText('红绿灯悬浮窗：' + (j.on ? '开' : (j.can ? '关' : '未授权')));
+        } catch (e) { /* 忽略 */ }
+      }
       function setTrafficBtnText(t) {
         if (drawerTrafficBtn) drawerTrafficBtn.textContent = t;
       }
+      /** 非灯态状态：单行占位（未就绪 / 待激活 / 初始化中 / 无灯态） */
+      function showLightIdle(text, dotCls) {
+        if (!lightCardEl) return;
+        lightCardEl.classList.add('show');
+        lightCardEl.classList.remove('live');
+        setLightCardText(text);
+        setLightDot(dotCls || 'off');
+      }
+      /** 倒计时文本：绿灯且剩余 0 秒时显示「通行」（原包 tv_*_light_no_seconds） */
+      function lightSecText(l) {
+        var sec = Math.max(0, l.remainSec | 0);
+        return (l.state === 2 && sec <= 0) ? '通行' : String(sec);
+      }
+      /** 通过性建议：按 距离/车速 判断能否过这个绿灯（原包文案） */
+      function renderLightHint(d, shown) {
+        if (!lightHintEl) return;
+        var p = null;
+        for (var i = 0; i < shown.length; i++) {
+          if (shown[i].flowDir === 2) { p = shown[i]; break; }
+        }
+        if (!p) p = shown[0];
+        var text = '', cls = '';
+        if (p) {
+          var sec = Math.max(0, p.remainSec | 0);
+          var speed = (typeof d.speed === 'number') ? d.speed : -1;
+          var dist = (typeof d.dist === 'number') ? d.dist : -1;
+          if (p.state === 2) {
+            if (sec <= 0) {
+              text = '路口绿灯可过'; cls = 'ok';
+            } else if (speed > 5 && dist > 5) {
+              var need = dist / (speed / 3.6);
+              if (sec > need + 2) { text = '路口绿灯可过'; cls = 'ok'; }
+              else { text = '当前车速已无法过灯'; cls = 'warn'; }
+            } else {
+              text = '路口绿灯可过'; cls = 'ok';
+            }
+          } else if (p.state === 1 || p.state === 3) {
+            text = '请减速等灯'; cls = 'wait';
+          }
+        }
+        if (lightHintEl.textContent !== text) lightHintEl.textContent = text;
+        var want = 'lHint' + (cls ? ' ' + cls : '');
+        if (lightHintEl.className !== want) lightHintEl.className = want;
+      }
+      /** 灯态横条：车速 + 距离 + 各方向灯图标与倒计时 + 车道牌 + 限速 */
+      function renderLightLive(d, lights) {
+        if (lMainEl) {
+          var sp = (typeof d.speed === 'number') ? d.speed : -1;
+          lMainEl.innerHTML = '<b>' + (sp >= 0 ? sp : '--') + '</b><i>km/h</i>';
+        }
+        var sig = '';
+        for (var s = 0; s < lights.length; s++) sig += lights[s].flowDir + ':' + lights[s].state + '|';
+        var shown = [];
+        for (var f = 0; f < lights.length; f++) {
+          if (lights[f].flowDir === 1 || lights[f].flowDir === 2) shown.push(lights[f]);
+        }
+        if (!shown.length) shown = lights;
+        lightShownLights = shown;
+        if (sig !== lightRowSig) {
+          lightRowSig = sig;
+          var html = '';
+          for (var j = 0; j < shown.length; j++) {
+            var l = shown[j];
+            var cls = LIGHT_DOT_CLASS[l.state] || 'off';
+            var dirKey = LIGHT_ICON_DIR[l.flowDir];
+            var stKey = LIGHT_ICON_STATE[l.state];
+            var head;
+            if (dirKey && stKey) {
+              head = '<img class="light-ic" alt="" src="light/icon_' + dirKey + '_' + stKey + '_n.webp">';
+            } else {
+              head = '<span class="dot">' + (LIGHT_ARROW[l.flowDir] || '·') + '</span>';
+            }
+            html += '<span class="chip ' + cls + '">' + head
+              + '<span class="sec">' + lightSecText(l) + '</span>'
+              + '</span>';
+          }
+          if (lightChipsEl) lightChipsEl.innerHTML = html;
+          lightSecEls = lightChipsEl ? lightChipsEl.querySelectorAll('.chip .sec') : [];
+        }
+        for (var m = 0; m < lightShownLights.length && m < lightSecEls.length; m++) {
+          var txt = lightSecText(lightShownLights[m]);
+          if (lightSecEls[m].textContent !== txt) {
+            lightSecEls[m].textContent = txt;
+            lightSecEls[m].classList.toggle('txt', txt === '通行');
+          }
+        }
+        renderLightHint(d, shown);
+        if (lightDistEl) {
+          if (typeof d.dist === 'number' && d.dist >= 8) lightDistEl.innerHTML = Math.round(d.dist) + '<i>米</i>';
+          else if (typeof d.dist === 'number' && d.dist >= 0) lightDistEl.textContent = '已到路口';
+          else lightDistEl.textContent = '';
+        }
+        if (lightLanesEl) {
+          var lanes = d.lanes || [];
+          if (!lanes.length) {
+            lightLanesEl.classList.add('empty');
+            lightLanesEl.innerHTML = '';
+          } else {
+            var lh = '';
+            for (var n = 0; n < lanes.length; n++) {
+              var iconName = LANE_ICON[lanes[n]];
+              if (iconName) {
+                lh += '<img alt="" src="light/' + iconName + '.webp">';
+              } else {
+                var g = LANE_GLYPH[lanes[n]];
+                lh += '<span class="lane-txt">' + ((g === undefined || g === '') ? '·' : g) + '</span>';
+              }
+            }
+            lightLanesEl.innerHTML = lh;
+            lightLanesEl.classList.remove('empty');
+          }
+        }
+        if (lightSpdEl) {
+          var limit = d.spdLimit;
+          if (typeof limit === 'number' && limit > 0) {
+            if (LIMIT_ICON[limit]) {
+              lightSpdEl.innerHTML = '<img alt="" src="light/icon_limit_' + limit + '.png">';
+              lightSpdEl.classList.remove('fallback');
+            } else {
+              lightSpdEl.textContent = limit;
+              lightSpdEl.classList.add('fallback');
+            }
+            lightSpdEl.classList.remove('empty');
+          } else {
+            lightSpdEl.textContent = '';
+            lightSpdEl.classList.remove('fallback');
+            lightSpdEl.classList.add('empty');
+          }
+        }
+      }
       function updateLightCard(d) {
+        if (!lightCardEl) return;
         if (!d) {
-          setLightCardText('红绿灯服务未就绪');
-          setLightDot('off');
+          showLightIdle('红绿灯服务未就绪', 'off');
           return;
         }
-        // 1) 未激活（status=9）：显示扫码引导
         if (d.activateNeeded) {
-          setLightCardText('待激活（扫码）');
-          setLightDot('yellow');
+          showLightIdle('待激活（扫码）', 'yellow');
           return;
         }
-        // 2) 会话未初始化/异常（status 非 0）：显示占位文案
         if (typeof d.status === 'number' && d.status !== 0) {
-          setLightCardText(d.status === 2 ? '红绿灯服务初始化中…' : '红绿灯服务未就绪（' + d.status + '）');
-          setLightDot('off');
+          showLightIdle(d.status === 2 ? '红绿灯服务初始化中…' : '红绿灯服务未就绪（' + d.status + '）', 'off');
           return;
         }
-        // 3) 有路口灯态：取最近路口第一个灯，显示灯色圆点 + 剩余秒数
-        var lights = d.lights;
-        if (lights && lights.length > 0) {
-          var l = lights[0];
-          var name = LIGHT_NAME[l.state] || ('灯态' + l.state);
-          var txt = name + ' ' + l.remainSec + 's';
-          if (typeof l.dist === 'number' && l.dist > 0) txt += ' · ' + Math.round(l.dist) + 'm';
-          setLightCardText(txt);
-          setLightDot(LIGHT_DOT_CLASS[l.state] || 'off');
-        } else {
-          setLightCardText('红绿灯服务已就绪 · 暂无路口');
-          setLightDot('off');
+        var lights = d.lights || [];
+        if (!lights.length) {
+          if (lastLiveData && (Date.now() - lastLiveTs) < 4000) {
+            lightCardEl.classList.add('show');
+            lightCardEl.classList.add('live');
+            lightCardEl.classList.add('stale');
+            renderLightLive(lastLiveData, lastLiveData.lights || []);
+            return;
+          }
+          lightCardEl.classList.remove('stale');
+          if (typeof d.crossCount === 'number' && d.crossCount > 0) {
+            if (!idleSince) idleSince = Date.now();
+            if (Date.now() - idleSince > 3000) {
+              lightCardEl.classList.remove('live');
+              lightCardEl.classList.remove('show');
+            } else {
+              showLightIdle('当前路口没有灯态信息', 'off');
+            }
+            return;
+          }
+          idleSince = 0;
+          lightCardEl.classList.remove('live');
+          lightCardEl.classList.remove('show');
+          return;
         }
+        lastLiveData = d;
+        lastLiveTs = Date.now();
+        idleSince = 0;
+        lightCardEl.classList.remove('stale');
+        lightCardEl.classList.add('show');
+        lightCardEl.classList.add('live');
+        renderLightLive(d, lights);
       }
       function pollLightData() {
         if (Date.now() - lastLightPoll < 500) return;
@@ -1672,6 +1953,7 @@
       function onResize() {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
+        applyDrawPixelBudget();
         renderer.setSize(window.innerWidth, window.innerHeight);
         sizeFreqCanvas();
         updateLyricPanelVisibility();
@@ -1790,6 +2072,15 @@
       initAudioSpectrum();
       initLyricPanel();
       initLightCard();
+      syncOverlayState();
+      // 渲染心跳：合成器卡死时 rAF 会停止递增，原生看门狗据此 reload 页面
+      (function rafHeartbeat() {
+        function tick() {
+          window.__raf = (window.__raf || 0) + 1;
+          requestAnimationFrame(tick);
+        }
+        requestAnimationFrame(tick);
+      })();
       // ---------- 顶部安全区：全屏沉浸后系统悬浮图标（头像/电量/wifi）与顶部内容重叠，
       // ---------- 通过 AndroidAudioBridge.getStatusBarHeight() 获取状态栏高度换算 vw 偏移，
       // ---------- 将 #clock / #lightCard / #lyricPanel 的 top 在原有 vw 基础上整体下移 ----------

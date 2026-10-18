@@ -111,6 +111,10 @@ public class LightSdkController {
 
     private LocationManager locationManager;
     private Location lastLocation;
+    /** 最近一次 GPS 速度（km/h），-1 表示还没有速度数据 */
+    private volatile int lastSpeedKmh = -1;
+    /** 上一次定位，用于没有速度字段时估算车速 */
+    private Location prevLoc;
     private volatile boolean initialized = false;
     private volatile boolean running = false;
     private long deviceUid = 0L;
@@ -119,6 +123,13 @@ public class LightSdkController {
     public interface ScanActivateCallback {
         void onScanResult(boolean ok, String message);
     }
+
+    /** 悬浮窗等外部消费者：收到与 WebView 相同的 window.__lightData payload */
+    public interface DataListener {
+        void onLightData(String json);
+    }
+
+    public static volatile DataListener sharedListener;
 
     public LightSdkController(Context context, WebView webView) {
         this.context = context;
@@ -288,6 +299,37 @@ public class LightSdkController {
             int speedKmh = (int) (location.getSpeed() * 3.6f);
             int accuracy = (int) location.getAccuracy();
             int latE3 = (int) (location.getLatitude() * 1000d);
+            // 车速只取真正的卫星定位：室内 0 颗卫星时系统仍会用 Wi-Fi/基站给一个"快速定位"，
+            // 那个速度字段是推算值（实测会给出 86km/h），不能采信
+            boolean fromGps = location.getProvider() != null
+                    && LocationManager.GPS_PROVIDER.equals(location.getProvider());
+            boolean goodFix = location.hasAccuracy() && location.getAccuracy() > 0f && location.getAccuracy() <= 15f;
+            int satellites = -1;
+            try {
+                if (location.getExtras() != null && location.getExtras().containsKey("satellites")) {
+                    satellites = location.getExtras().getInt("satellites", -1);
+                }
+            } catch (Throwable ignored) {
+            }
+            boolean realFix = goodFix && (satellites < 0 || satellites > 0);
+            if (fromGps && realFix && location.hasSpeed()) {
+                lastSpeedKmh = Math.max(0, Math.round(location.getSpeed() * 3.6f));
+            } else if (fromGps && realFix && prevLoc != null && prevLoc.getProvider() != null
+                    && LocationManager.GPS_PROVIDER.equals(prevLoc.getProvider())) {
+                long dt = location.getTime() - prevLoc.getTime();
+                if (dt >= 800 && dt <= 3000) {
+                    float dMeters = location.distanceTo(prevLoc);
+                    if (dMeters <= 3f) {
+                        lastSpeedKmh = 0;
+                    } else if (dMeters < 60f) {
+                        lastSpeedKmh = Math.max(0, Math.round(dMeters / (dt / 1000f) * 3.6f));
+                    }
+                }
+            } else {
+                // 没有真实卫星定位：不显示速度（"--"），不给错误读数
+                lastSpeedKmh = -1;
+            }
+            prevLoc = new Location(location);
             boolean ok = LightHandler.getInstance().nativeUpdateGeoPos(time, lonE7, latE7, bearing, speedKmh, accuracy, latE3);
             if (!ok) {
                 Log.v(TAG, "nativeUpdateGeoPos returned false");
@@ -335,30 +377,76 @@ public class LightSdkController {
         }
 
         StringBuilder lights = new StringBuilder();
+        CrossTli best = null;
         if (info != null && info.crossTlis != null && info.crossTlis.length > 0) {
-            // 取距离最近的路口（dist 最小）
-            CrossTli best = info.crossTlis[0];
+            // 取距离最近的路口（dist 最小）；同一路口会带多条相位（左/直/右/掉头）
+            best = info.crossTlis[0];
             for (CrossTli c : info.crossTlis) {
                 if (c.dist < best.dist) {
                     best = c;
                 }
             }
-            LightPhase p = pickPhase(best);
-            if (p != null) {
+            if (best.phases != null && best.phases.length > 0) {
+                // 按车道从左到右的视觉顺序输出：左转 -> 直行 -> 右转 -> 掉头
+                int[] order = {LightConstant.FLOW_DIR_LEFT, LightConstant.FLOW_DIR_STRAIGHT,
+                        LightConstant.FLOW_DIR_RIGHT, LightConstant.FLOW_DIR_UTURN};
+                boolean firstLight = true;
                 long now = System.currentTimeMillis();
-                int remain = p.curEndTime > now ? (int) Math.ceil((p.curEndTime - now) / 1000d) : 0;
-                lights.append(String.format(Locale.US,
-                        "{\"type\":%d,\"dist\":%d,\"dir\":%d,\"state\":%d,\"remainSec\":%d,\"nextState\":%d}",
-                        best.lightType, best.dist, p.flowDir, p.curState, remain, p.nextState));
+                int emitted = 0;
+                for (int dir : order) {
+                    LightPhase p = findPhase(best, dir);
+                    if (p == null || p.curState == LightConstant.LIGHT_STATE_NONE) {
+                        // state=0 表示该流向没有灯态数据（例如该路口没有左转箭头灯），不下发
+                        continue;
+                    }
+                    int remain = p.curEndTime > now ? (int) Math.ceil((p.curEndTime - now) / 1000d) : 0;
+                    int nextRemain = p.nextEndTime > now ? (int) Math.ceil((p.nextEndTime - now) / 1000d) : 0;
+                    if (!firstLight) {
+                        lights.append(',');
+                    }
+                    lights.append(String.format(Locale.US,
+                            "{\"flowDir\":%d,\"state\":%d,\"remainSec\":%d,\"nextState\":%d,\"nextRemainSec\":%d}",
+                            p.flowDir, p.curState, remain, p.nextState, nextRemain));
+                    firstLight = false;
+                    emitted++;
+                }
+                Log.d(TAG, "cross dist=" + best.dist + " type=" + best.lightType
+                        + " phases=" + best.phases.length + " emitted=" + emitted);
             }
+        }
+
+        String lanes = "";
+        if (best != null && best.guidelane != null && best.guidelane.length > 0) {
+            StringBuilder lb = new StringBuilder("[");
+            for (int i = 0; i < best.guidelane.length && i < 8; i++) {
+                if (i > 0) {
+                    lb.append(',');
+                }
+                lb.append(best.guidelane[i]);
+            }
+            lb.append(']');
+            lanes = lb.toString();
         }
 
         String js = "window.__lightData={ready:" + initialized
                 + ",activateNeeded:" + activateNeeded
                 + ",status:" + status
                 + ",ts:" + System.currentTimeMillis()
+                + ",speed:" + lastSpeedKmh
+                + ",dist:" + (best != null ? best.dist : -1)
+                + ",spdLimit:" + (best != null ? best.spdLimit : 0)
+                + ",crossCount:" + (info != null && info.crossTlis != null ? info.crossTlis.length : 0)
+                + ",lanes:" + (lanes.isEmpty() ? "[]" : lanes)
                 + ",lights:[" + lights + "]};";
         Log.d(TAG, "push: " + js);
+        // 悬浮窗等外部消费者：与 WebView 收到同一份 payload
+        DataListener dl = sharedListener;
+        if (dl != null) {
+            try {
+                dl.onLightData(js);
+            } catch (Throwable ignored) {
+            }
+        }
         final WebView wv = webView;
         if (wv != null) {
             wv.post(new Runnable() {
@@ -370,17 +458,17 @@ public class LightSdkController {
         }
     }
 
-    /** 相位选取：优先直行（flowDir=2），否则取第一个 */
-    private LightPhase pickPhase(CrossTli cross) {
-        if (cross.phases == null || cross.phases.length == 0) {
+    /** 按流向查找相位（左/直/右/掉头）；同一路口通常带多条相位 */
+    private LightPhase findPhase(CrossTli cross, int flowDir) {
+        if (cross.phases == null) {
             return null;
         }
         for (LightPhase p : cross.phases) {
-            if (p.flowDir == LightConstant.FLOW_DIR_STRAIGHT) {
+            if (p.flowDir == flowDir) {
                 return p;
             }
         }
-        return cross.phases[0];
+        return null;
     }
 
     /** 设置页扫码激活入口（保留兼容：路径A旧占位，前端已改走 lightFetchQrCode） */

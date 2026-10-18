@@ -9,6 +9,12 @@ if (localPropertiesFile.exists()) {
     localPropertiesFile.withInputStream { lightProperties.load(it) }
 }
 
+// Optional fixed test keystore (ignored by git). Android ID -- and therefore the light SDK
+// authorization -- is scoped to the app signing key, so a stable debug signature keeps the
+// device activated across rebuilds instead of forcing a new WeChat QR scan every install.
+def testKeystoreFile = rootProject.file('dev/p7show-test.jks')
+def hasTestKeystore = testKeystoreFile.exists()
+
 android {
     buildFeatures {
         buildConfig true
@@ -16,21 +22,41 @@ android {
     namespace 'com.xpeng.p7show'
     compileSdk 36
 
+    signingConfigs {
+        if (hasTestKeystore) {
+            p7test {
+                storeFile testKeystoreFile
+                storePassword 'p7showtest'
+                keyAlias 'p7test'
+                keyPassword 'p7showtest'
+            }
+        }
+    }
+
     defaultConfig {
         applicationId "com.xpeng.p7show"
         buildConfigField 'String', 'P7_LIGHT_SDK_KEY', groovy.json.JsonOutput.toJson(lightProperties.getProperty('p7.light.sdkKey', ''))
         buildConfigField 'String', 'P7_LIGHT_ACCESS_KEY', groovy.json.JsonOutput.toJson(lightProperties.getProperty('p7.light.accessKey', ''))
         minSdk 24
         targetSdk 36
-        // v1.18.5：默认关闭的前台天气接入与雨雪雾星空视觉
-        versionCode 23
-        versionName "1.18.5"
+        // v1.18.6：红绿灯 HUD（多相位/建议/悬浮窗）
+        versionCode 24
+        versionName "1.18.6"
     }
 
     buildTypes {
+        debug {
+            if (hasTestKeystore) {
+                signingConfig signingConfigs.p7test
+            }
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // 本地有测试 keystore 时用它签 release（密钥不入库）；CI 上无 keystore 则为未签名
+            if (hasTestKeystore) {
+                signingConfig signingConfigs.p7test
+            }
         }
     }
 
