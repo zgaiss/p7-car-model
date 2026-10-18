@@ -1,5 +1,6 @@
 package com.show.p7;
 
+import com.xpeng.p7show.BuildConfig;
 import com.xpeng.p7show.R;
 
 import android.Manifest;
@@ -301,7 +302,14 @@ public class MainActivity extends Activity {
             }
         }
 
-        webView.loadUrl("file:///android_asset/index.html");
+        // Scene hook for debug builds only: lets the weather/visual preview switches be driven from adb
+        // without rebuilding, e.g. --es p7Query "?weatherPreview=rain". Release builds ignore the extra.
+        String sceneQuery = BuildConfig.DEBUG ? getIntent().getStringExtra("p7Query") : null;
+        if (sceneQuery != null && sceneQuery.matches("\\?[A-Za-z0-9_=&.%\\-]{1,120}")) {
+            webView.loadUrl("file:///android_asset/index.html" + sceneQuery);
+        } else {
+            webView.loadUrl("file:///android_asset/index.html");
+        }
     }
 
     /** Remote documents must never load in the WebView that exposes native permission bridges. */
