@@ -407,9 +407,19 @@
 
       var camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.01, 1000); // viewer: new PerspectiveCamera(50, aspect, 0.01, 1000)
 
-      var renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); // B项：alpha 透明画布，歌词位于车模后
+      var renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true }); // 关闭 MSAA：多采样缓冲在高分屏上会让部分驱动分配失败；靠像素比保证边缘质量
       renderer.setClearColor(0x000000, 0); // B项：完全透明，露出 body 深色背景
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      // 后备缓冲预算：2400 宽面板按 dpr=2 会申请 2400x1200 以上的多采样缓冲，
+      // 部分厂商 WebView 的 Adreno 驱动分配失败时不是降级而是直接段错误（实测华为平板必崩）。
+      // 这里按总像素封顶，超出时等比下调像素比，保证既有清晰度又不越过驱动的安全线。
+      var MAX_DRAW_PIXELS = 2400000;
+      function applyDrawPixelBudget() {
+        var dpr = Math.min(window.devicePixelRatio || 1, 2);
+        var pixels = window.innerWidth * window.innerHeight * dpr * dpr;
+        if (pixels > MAX_DRAW_PIXELS) dpr *= Math.sqrt(MAX_DRAW_PIXELS / pixels);
+        renderer.setPixelRatio(dpr);
+      }
+      applyDrawPixelBudget();
       renderer.setSize(window.innerWidth, window.innerHeight);
       if(weatherPreview)renderer.debug.onShaderError=function(gl,program,vs,fs){var d=document.createElement('pre');d.style.cssText='position:fixed;inset:0;z-index:999;background:black;color:red';d.textContent=gl.getProgramInfoLog(program)+'\n'+gl.getShaderInfoLog(vs)+'\n'+gl.getShaderInfoLog(fs);document.body.appendChild(d);};
       renderer.useLegacyLights = false; // 物理光照模式，对应新版 three 默认；Neutral 环境 PointLight 强度 900 依赖此模式
@@ -1672,6 +1682,7 @@
       function onResize() {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
+        applyDrawPixelBudget();
         renderer.setSize(window.innerWidth, window.innerHeight);
         sizeFreqCanvas();
         updateLyricPanelVisibility();

@@ -286,7 +286,8 @@ public class MainActivity extends Activity {
             }
         });
         webView.setBackgroundColor(0x00000000);
-        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        // No forced hardware layer: the WebView already renders through the GPU, and an extra
+        // layer has been observed to crash the in-process GPU thread on some vendor builds.
 
         // Android 6.0+ 运行时权限：RECORD_AUDIO（麦克风拾音必需）
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -302,14 +303,26 @@ public class MainActivity extends Activity {
             }
         }
 
-        // Scene hook for debug builds only: lets the weather/visual preview switches be driven from adb
-        // without rebuilding, e.g. --es p7Query "?weatherPreview=rain". Release builds ignore the extra.
-        String sceneQuery = BuildConfig.DEBUG ? getIntent().getStringExtra("p7Query") : null;
-        if (sceneQuery != null && sceneQuery.matches("\\?[A-Za-z0-9_=&.%\\-]{1,120}")) {
-            webView.loadUrl("file:///android_asset/index.html" + sceneQuery);
-        } else {
-            webView.loadUrl("file:///android_asset/index.html");
-        }
+        webView.loadUrl(sceneUrl(getIntent()));
+    }
+
+    /**
+     * Debug builds only: switch the preview scene in place instead of restarting the process.
+     * Relaunching a killed WebView repeatedly is unstable on some vendor GPU drivers, so the
+     * scene hook reloads the asset page with the requested query string.
+     */
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (webView != null) webView.loadUrl(sceneUrl(intent));
+    }
+
+    private static String sceneUrl(Intent intent) {
+        String query = (BuildConfig.DEBUG && intent != null) ? intent.getStringExtra("p7Query") : null;
+        return (query != null && query.matches("\\?[A-Za-z0-9_=&.%\\-]{1,120}"))
+                ? "file:///android_asset/index.html" + query
+                : "file:///android_asset/index.html";
     }
 
     /** Remote documents must never load in the WebView that exposes native permission bridges. */

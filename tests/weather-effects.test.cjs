@@ -1,11 +1,11 @@
 ﻿const test=require('node:test'),assert=require('node:assert/strict');
 const THREE=require('../app/src/main/assets/three.min.js');const factory=require('../app/src/main/assets/weather-effects.js'); const vm=require('vm'),fs=require('fs');const sandbox={THREE,console,performance,crypto:require('node:crypto').webcrypto};vm.createContext(sandbox);vm.runInContext(fs.readFileSync(require.resolve('../app/src/main/assets/vendor/nebula/three-nebula.umd.js'),'utf8'),sandbox);const create=()=>factory(THREE,{Nebula:sandbox.Nebula});
-test('bounded buffers and shared scheduler only',()=>{const w=create(THREE);assert.deepEqual(w.getState().counts,{rain:416,snow:240,stars:180});assert.deepEqual(w.getState().particleCounts,[416,240,180]);assert.equal(w.group.children.length,3);w.group.children.forEach(p=>{assert.equal(p.material.depthWrite,false);assert.equal(p.material.depthTest,true);assert.equal(p.visible,false);});w.dispose();});
+test('bounded buffers and shared scheduler only',()=>{const w=create(THREE);assert.deepEqual(w.getState().counts,{rain:544,snow:240,stars:180});assert.deepEqual(w.getState().particleCounts,[544,240,180]);assert.equal(w.group.children.length,3);w.group.children.forEach(p=>{assert.equal(p.material.depthWrite,false);assert.equal(p.material.depthTest,true);assert.equal(p.visible,false);});w.dispose();});
 test('caps low frame delta and negative or invalid input',()=>{const w=create(THREE);w.update(20,[],1200,630,3);assert.equal(w.getState().time,.05);w.update(-1);w.update(NaN);assert.equal(w.getState().time,.05);w.dispose();});
 test('crossfade exits old layer and unknown clears',()=>{const w=create(THREE);w.setKind('rain');for(let i=0;i<100;i++)w.update(.05,[],1200,630,1);assert.deepEqual(w.getState().visible,['rain']);w.setKind('snow');w.update(.05,[],1200,630,1);assert.deepEqual(w.getState().visible,['rain','snow']);for(let i=0;i<100;i++)w.update(.05,[],1200,630,1);assert.deepEqual(w.getState().visible,['snow']);w.setKind('bad');for(let i=0;i<100;i++)w.update(.05,[],1200,630,1);assert.deepEqual(w.getState().visible,[]);w.dispose();});
 test('resize masks and DPR cap; idempotent resource disposal',()=>{const w=create(THREE),s=new THREE.Scene();s.add(w.group);w.update(.01,[{left:0,top:0,right:600,bottom:315}],1200,630,4);const u=w.group.children[0].material.uniforms;assert.deepEqual(u.uMasks.value[0].toArray(),[-1,0,0,1]);assert.equal(u.uDpr.value,2);let n=0;w.group.children.forEach(p=>{p.geometry.addEventListener('dispose',()=>n++);p.material.addEventListener('dispose',()=>n++);});w.dispose();w.dispose();w.update(1);w.setKind('snow');assert.equal(n,6);assert.equal(s.children.length,0);});
 test('no network, location or autonomous animation in effect',()=>{const s=require('fs').readFileSync(require.resolve('../app/src/main/assets/weather-effects.js'),'utf8');assert.ok(!/requestAnimationFrame|setInterval|setTimeout|fetch\(|XMLHttpRequest|geolocation/.test(s));});
-test('rain keeps fine varied streaks while snow and stars use smaller depth-aware points',()=>{const w=create();w.setKind('rain');w.update(.05,[],1200,630,1);const rain=w.group.children[0];assert.match(rain.material.vertexShader,/20\.0\+aSeed\*18\.0/);assert.match(rain.material.vertexShader,/4\.0\+aSeed\*aSeed\*7\.0.*2\.2\+aSeed\*aSeed\*3\.4/);assert.ok(rain.material.uniforms.uAlpha.value<.4);w.dispose();});
+test('rain keeps fine varied streaks while snow and stars use smaller depth-aware points',()=>{const w=create();w.setKind('rain');w.update(.05,[],1200,630,1);const rain=w.group.children[0];assert.match(rain.material.vertexShader,/12\.0\+aSeed\*10\.0/);assert.match(rain.material.vertexShader,/3\.0\+aSeed\*aSeed\*4\.5.*1\.8\+aSeed\*aSeed\*2\.2/);assert.ok(rain.material.uniforms.uAlpha.value<.4);w.dispose();});
 
 test('snow depth produces bounded varied fall speeds and gentle lateral drift',()=>{
   const w=create();w.setKind('snow');w.update(.01,[],1200,630,1);
@@ -16,7 +16,7 @@ test('snow depth produces bounded varied fall speeds and gentle lateral drift',(
   assert.ok(Math.max(...speeds)<.13);assert.ok(Math.min(...speeds)>.03);
   for(let i=0;i<1600;i++)w.update(.05,[],1200,630,1);
   for(let i=0;i<80;i++){assert.ok(Math.abs(b[i*3])<=1.04);assert.ok(b[i*3+1]>=-.45&&b[i*3+1]<=1);}
-  assert.deepEqual(w.getState().particleCounts,[416,240,180]);w.dispose();
+  assert.deepEqual(w.getState().particleCounts,[544,240,180]);w.dispose();
 });
 test('stars stay fixed in the upper sky and have restrained independent twinkle',()=>{
   const w=create();w.setKind('stars');w.update(.05,[],1200,630,1);
@@ -31,10 +31,10 @@ test('stars stay fixed in the upper sky and have restrained independent twinkle'
 test('repeated snow and star switching reuses the same Nebula systems and buffers',()=>{
   const w=create(),points=w.group.children.slice(),buffers=points.map(p=>p.geometry.attributes.position.array);
   for(let i=0;i<200;i++){w.setKind(i%2?'snow':'stars');w.update(.05,[],1200,630,2);}
-  assert.deepEqual(w.getState().particleCounts,[416,240,180]);
+  assert.deepEqual(w.getState().particleCounts,[544,240,180]);
   w.group.children.forEach((p,i)=>{assert.equal(p,points[i]);assert.equal(p.geometry.attributes.position.array,buffers[i]);});w.dispose();
 });
-test('wind concept is opt-in and keeps fixed particle budgets',()=>{const normal=create(),w=factory(THREE,{Nebula:sandbox.Nebula,wind:true});assert.equal(normal.group.children[0].material.uniforms.uWind.value,0);assert.equal(w.group.children[0].material.uniforms.uWind.value,1);w.setKind('snow');for(let i=0;i<300;i++)w.update(.05,[],1200,600,1);assert.deepEqual(w.getState().particleCounts,[416,240,180]);const pos=w.group.children[1].geometry.attributes.position.array;for(let i=0;i<pos.length;i++)assert.ok(Number.isFinite(pos[i]));normal.dispose();w.dispose();});
+test('wind concept is opt-in and keeps fixed particle budgets',()=>{const normal=create(),w=factory(THREE,{Nebula:sandbox.Nebula,wind:true});assert.equal(normal.group.children[0].material.uniforms.uWind.value,0);assert.equal(w.group.children[0].material.uniforms.uWind.value,1);w.setKind('snow');for(let i=0;i<300;i++)w.update(.05,[],1200,600,1);assert.deepEqual(w.getState().particleCounts,[544,240,180]);const pos=w.group.children[1].geometry.attributes.position.array;for(let i=0;i<pos.length;i++)assert.ok(Number.isFinite(pos[i]));normal.dispose();w.dispose();});
 
 test('wind uniform uses matching explicit precision across shader stages',()=>{
  const src=fs.readFileSync(__dirname+'/../app/src/main/assets/weather-effects.js','utf8');
